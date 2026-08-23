@@ -12,6 +12,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "TsubameCore"),
-        .executableTarget(name: "TsubameCLI", dependencies: ["TsubameCore"])
+        .executableTarget(name: "TsubameCLI", dependencies: ["TsubameCore"]),
+        .testTarget(name: "TsubameCoreTests", dependencies: ["TsubameCore"])
     ]
 )
