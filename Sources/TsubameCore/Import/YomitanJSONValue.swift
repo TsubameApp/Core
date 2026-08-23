@@ -2,7 +2,7 @@
 ///
 /// Structured glossary and metadata objects are intentionally preserved here
 /// instead of being coupled to the application's eventual presentation model.
-public indirect enum YomitanJSONValue: Decodable, Sendable, Equatable {
+public indirect enum YomitanJSONValue: Codable, Sendable, Equatable {
     case null
     case boolean(Bool)
     case integer(Int)
@@ -35,10 +35,31 @@ public indirect enum YomitanJSONValue: Decodable, Sendable, Equatable {
             )
         }
     }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+
+        switch self {
+        case .null:
+            try container.encodeNil()
+        case .boolean(let value):
+            try container.encode(value)
+        case .integer(let value):
+            try container.encode(value)
+        case .number(let value):
+            try container.encode(value)
+        case .string(let value):
+            try container.encode(value)
+        case .array(let value):
+            try container.encode(value)
+        case .object(let value):
+            try container.encode(value)
+        }
+    }
 }
 
 /// One glossary value from a Yomitan term entry.
-public enum YomitanGlossaryItem: Decodable, Sendable, Equatable {
+public enum YomitanGlossaryItem: Codable, Sendable, Equatable {
     case text(String)
     case object([String: YomitanJSONValue])
     case deinflection(term: String, rules: [String])
@@ -65,6 +86,21 @@ public enum YomitanGlossaryItem: Decodable, Sendable, Equatable {
                 in: container,
                 debugDescription: "A Yomitan glossary item must be a string, object, or deinflection pair."
             )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        switch self {
+        case .text(let text):
+            var container = encoder.singleValueContainer()
+            try container.encode(text)
+        case .object(let object):
+            var container = encoder.singleValueContainer()
+            try container.encode(object)
+        case .deinflection(let term, let rules):
+            var container = encoder.unkeyedContainer()
+            try container.encode(term)
+            try container.encode(rules)
         }
     }
 }

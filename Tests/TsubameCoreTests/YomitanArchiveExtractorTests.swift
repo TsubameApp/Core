@@ -171,7 +171,7 @@ struct YomitanArchiveExtractorTests {
     }
 }
 
-private struct ZIPTestEntry {
+struct ZIPTestEntry {
     enum Kind {
         case file
         case directory
@@ -195,7 +195,7 @@ private struct ZIPTestEntry {
     }
 }
 
-private func makeZIP(_ entries: [ZIPTestEntry]) -> Data {
+func makeZIP(_ entries: [ZIPTestEntry]) -> Data {
     struct CentralEntry {
         let entry: ZIPTestEntry
         let name: Data

@@ -2,7 +2,12 @@ import Foundation
 import TsubameCore
 
 enum ImportPreviewCommand {
-    static func run(from source: URL) throws {
+    static func run(from source: URL, databaseURL: URL? = nil) throws {
+        if let databaseURL {
+            try importDatabase(from: source, to: databaseURL)
+            return
+        }
+
         let fileManager = FileManager.default
         var isDirectory: ObjCBool = false
         let sourceExists = fileManager.fileExists(
@@ -38,6 +43,26 @@ enum ImportPreviewCommand {
         )
 
         print("[import] Opening: \(source.path)")
+        printPreview(preview)
+        print("[import] Dry run only: no SQLite database was written.")
+    }
+
+    private static func importDatabase(from source: URL, to databaseURL: URL) throws {
+        print("[import] Importing: \(source.path)")
+        let result = try YomitanSQLiteDictionaryImporter(
+            temporaryRoot: FileManager.default.temporaryDirectory
+        ).import(
+            from: DictionaryImportSource(url: source),
+            to: databaseURL
+        )
+
+        printPreview(result.preview)
+        print("[import] Definitions: \(result.definitionCount)")
+        print("[import] Lookup keys: \(result.lookupKeyCount)")
+        print("[import] Database: \(result.databaseURL.path)")
+    }
+
+    private static func printPreview(_ preview: YomitanDictionaryPreview) {
         print("[import] Dictionary: \(preview.index.title) (format \(preview.index.format), revision \(preview.index.revision))")
 
         for termBank in preview.termBanks {
@@ -67,6 +92,5 @@ enum ImportPreviewCommand {
                 + "\(preview.totalKanjiMetadata) kanji metadata entries and "
                 + "\(preview.totalTags) tags."
         )
-        print("[import] Dry run only: no SQLite database was written.")
     }
 }

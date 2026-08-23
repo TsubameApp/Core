@@ -14,6 +14,9 @@ public enum DictionaryImportError: LocalizedError {
     case noSupportedBanks(URL)
     case unsupportedFormat
     case invalidDictionary
+    case destinationIsNotLocalFile(URL)
+    case destinationAlreadyExists(URL)
+    case databaseIntegrityCheckFailed(String)
     case cancelled
 
     public var errorDescription: String? {
@@ -28,6 +31,12 @@ public enum DictionaryImportError: LocalizedError {
             return "The dictionary format is not supported."
         case .invalidDictionary:
             return "The dictionary is invalid."
+        case .destinationIsNotLocalFile(let destination):
+            return "Dictionary database destination is not a local file URL: \(destination.absoluteString)"
+        case .destinationAlreadyExists(let destination):
+            return "Dictionary database destination already exists: \(destination.path)"
+        case .databaseIntegrityCheckFailed(let result):
+            return "Dictionary database integrity check failed: \(result)"
         case .cancelled:
             return "Dictionary import was cancelled."
         }
