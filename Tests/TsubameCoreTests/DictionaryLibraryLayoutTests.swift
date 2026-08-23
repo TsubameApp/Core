@@ -1,76 +1,82 @@
 import Foundation
-import XCTest
+import Testing
 @testable import TsubameCore
 
-final class DictionaryLibraryLayoutTests: XCTestCase {
+@Suite
+struct DictionaryLibraryLayoutTests {
     private let dictionaryID = UUID(uuidString: "A6A53A94-665A-43E4-877D-6F9BCE107D01")!
     private let importID = UUID(uuidString: "44F9BEE7-2A44-4EA3-8095-D05B84B06738")!
 
-    func testBuildsDurableLayoutFromInjectedDataRoot() {
+    @Test func buildsDurableLayoutFromInjectedDataRoot() {
         let layout = makeLayout()
         let dictionaryComponent = dictionaryID.uuidString.lowercased()
         let importComponent = importID.uuidString.lowercased()
 
-        XCTAssertEqual(
-            layout.applicationDatabaseURL,
-            layout.locations.dataRoot.appending(path: "application.sqlite")
+        #expect(
+            layout.applicationDatabaseURL
+                == layout.locations.dataRoot.appending(path: "application.sqlite")
         )
-        XCTAssertEqual(
-            layout.dictionariesRootURL,
-            layout.locations.dataRoot.appending(path: "Dictionaries", directoryHint: .isDirectory)
-        )
-        XCTAssertEqual(
-            layout.publicationStagingURL(for: importID),
-            layout.publicationStagingRootURL.appending(path: importComponent, directoryHint: .isDirectory)
-        )
-        XCTAssertEqual(
-            layout.dictionaryDatabaseURL(for: dictionaryID),
+        #expect(
             layout.dictionariesRootURL
-                .appending(path: dictionaryComponent, directoryHint: .isDirectory)
-                .appending(path: "dictionary.sqlite")
+                == layout.locations.dataRoot.appending(path: "Dictionaries", directoryHint: .isDirectory)
         )
-        XCTAssertEqual(
-            layout.dictionaryManifestURL(for: dictionaryID),
-            layout.dictionariesRootURL
-                .appending(path: dictionaryComponent, directoryHint: .isDirectory)
-                .appending(path: "manifest.json")
+        #expect(
+            layout.publicationStagingURL(for: importID)
+                == layout.publicationStagingRootURL.appending(
+                    path: importComponent,
+                    directoryHint: .isDirectory
+                )
+        )
+        #expect(
+            layout.dictionaryDatabaseURL(for: dictionaryID)
+                == layout.dictionariesRootURL
+                    .appending(path: dictionaryComponent, directoryHint: .isDirectory)
+                    .appending(path: "dictionary.sqlite")
+        )
+        #expect(
+            layout.dictionaryManifestURL(for: dictionaryID)
+                == layout.dictionariesRootURL
+                    .appending(path: dictionaryComponent, directoryHint: .isDirectory)
+                    .appending(path: "manifest.json")
         )
     }
 
-    func testKeepsTemporaryWorkOutsideDurablePublicationStaging() {
+    @Test func keepsTemporaryWorkOutsideDurablePublicationStaging() {
         let layout = makeLayout()
 
-        XCTAssertEqual(
-            layout.temporaryWorkingURL(for: importID),
-            layout.locations.temporaryRoot
-                .appending(path: "Tsubame", directoryHint: .isDirectory)
-                .appending(path: importID.uuidString.lowercased(), directoryHint: .isDirectory)
+        #expect(
+            layout.temporaryWorkingURL(for: importID)
+                == layout.locations.temporaryRoot
+                    .appending(path: "Tsubame", directoryHint: .isDirectory)
+                    .appending(path: importID.uuidString.lowercased(), directoryHint: .isDirectory)
         )
-        XCTAssertTrue(
+        #expect(
             layout.publicationStagingURL(for: importID).path.hasPrefix(layout.locations.dataRoot.path)
         )
-        XCTAssertFalse(
-            layout.publicationStagingURL(for: importID).path.hasPrefix(layout.locations.temporaryRoot.path)
+        #expect(
+            !layout.publicationStagingURL(for: importID).path.hasPrefix(
+                layout.locations.temporaryRoot.path
+            )
         )
     }
 
-    func testResolvesValidResourcePathsInsideDictionaryBundle() throws {
+    @Test func resolvesValidResourcePathsInsideDictionaryBundle() throws {
         let layout = makeLayout()
         let image = try DictionaryResourcePath("images/0005.png")
         let nestedSVG = try DictionaryResourcePath("jitendex/noun.svg")
         let resourcesRoot = layout.resourcesRootURL(for: dictionaryID)
 
-        XCTAssertEqual(
-            layout.resourceURL(for: image, dictionaryID: dictionaryID),
-            resourcesRoot.appending(path: "images").appending(path: "0005.png")
+        #expect(
+            layout.resourceURL(for: image, dictionaryID: dictionaryID)
+                == resourcesRoot.appending(path: "images").appending(path: "0005.png")
         )
-        XCTAssertEqual(
-            layout.resourceURL(for: nestedSVG, dictionaryID: dictionaryID),
-            resourcesRoot.appending(path: "jitendex").appending(path: "noun.svg")
+        #expect(
+            layout.resourceURL(for: nestedSVG, dictionaryID: dictionaryID)
+                == resourcesRoot.appending(path: "jitendex").appending(path: "noun.svg")
         )
     }
 
-    func testRejectsUnsafeOrNonPortableResourcePaths() {
+    @Test func rejectsUnsafeOrNonPortableResourcePaths() {
         let invalidPaths = [
             "",
             "/images/a.png",
@@ -88,17 +94,19 @@ final class DictionaryLibraryLayoutTests: XCTestCase {
         ]
 
         for path in invalidPaths {
-            XCTAssertThrowsError(try DictionaryResourcePath(path), "Expected rejection for \(path.debugDescription)")
+            #expect(throws: (any Error).self, "Expected rejection for \(path.debugDescription)") {
+                try DictionaryResourcePath(path)
+            }
         }
     }
 
-    func testCodableRoundTripPreservesValidatedPath() throws {
+    @Test func codableRoundTripPreservesValidatedPath() throws {
         let path = try DictionaryResourcePath("images/reference.webp")
 
         let encoded = try JSONEncoder().encode(path)
         let decoded = try JSONDecoder().decode(DictionaryResourcePath.self, from: encoded)
 
-        XCTAssertEqual(decoded, path)
+        #expect(decoded == path)
     }
 
     private func makeLayout() -> DictionaryLibraryLayout {

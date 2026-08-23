@@ -1,9 +1,10 @@
 import Foundation
-import XCTest
+import Testing
 @testable import TsubameCore
 
-final class SQLiteSmokeTests: XCTestCase {
-    func testCreatesWritesClosesAndReopensDatabase() throws {
+@Suite
+struct SQLiteSmokeTests {
+    @Test func createsWritesClosesAndReopensDatabase() throws {
         try withTemporaryDatabase { databaseURL in
             let payload = Data([0x00, 0x01, 0xfe, 0xff])
 
@@ -29,7 +30,7 @@ final class SQLiteSmokeTests: XCTestCase {
                 try insert.bind(1.5, at: 3)
                 try insert.bind(payload, at: 4)
                 try insert.bindNull(at: 5)
-                XCTAssertEqual(try insert.step(), .done)
+                #expect(try insert.step() == .done)
                 try insert.finalize()
                 try connection.close()
             }
@@ -41,15 +42,15 @@ final class SQLiteSmokeTests: XCTestCase {
                 )
                 try select.bind(Int64(1), at: 1)
 
-                XCTAssertEqual(try select.step(), .row)
-                XCTAssertEqual(select.columnType(at: 0), .integer)
-                XCTAssertEqual(select.integer(at: 0), 1)
-                XCTAssertEqual(select.string(at: 1), "食べる")
-                XCTAssertEqual(select.double(at: 2), 1.5, accuracy: 0.000_001)
-                XCTAssertEqual(select.data(at: 3), payload)
-                XCTAssertEqual(select.columnType(at: 4), .null)
-                XCTAssertNil(select.string(at: 4))
-                XCTAssertEqual(try select.step(), .done)
+                #expect(try select.step() == .row)
+                #expect(select.columnType(at: 0) == .integer)
+                #expect(select.integer(at: 0) == 1)
+                #expect(select.string(at: 1) == "食べる")
+                #expect(abs(select.double(at: 2) - 1.5) <= 0.000_001)
+                #expect(select.data(at: 3) == payload)
+                #expect(select.columnType(at: 4) == .null)
+                #expect(select.string(at: 4) == nil)
+                #expect(try select.step() == .done)
 
                 try select.finalize()
                 try connection.close()
@@ -57,7 +58,7 @@ final class SQLiteSmokeTests: XCTestCase {
         }
     }
 
-    func testTransactionRollsBackWhenBodyThrows() throws {
+    @Test func transactionRollsBackWhenBodyThrows() throws {
         enum ExpectedFailure: Error {
             case rollback
         }
@@ -68,53 +69,50 @@ final class SQLiteSmokeTests: XCTestCase {
 
             try connection.execute("CREATE TABLE sample (value TEXT NOT NULL)")
 
-            XCTAssertThrowsError(
+            #expect(throws: ExpectedFailure.rollback) {
                 try connection.inTransaction {
                     let insert = try connection.prepare("INSERT INTO sample (value) VALUES (?)")
                     try insert.bind("must roll back", at: 1)
-                    XCTAssertEqual(try insert.step(), .done)
+                    #expect(try insert.step() == .done)
                     try insert.finalize()
                     throw ExpectedFailure.rollback
-                }
-            ) { error in
-                guard case ExpectedFailure.rollback = error else {
-                    return XCTFail("Expected rollback marker, got \(error)")
                 }
             }
 
             let count = try connection.prepare("SELECT COUNT(*) FROM sample")
-            XCTAssertEqual(try count.step(), .row)
-            XCTAssertEqual(count.integer(at: 0), 0)
+            #expect(try count.step() == .row)
+            #expect(count.integer(at: 0) == 0)
             try count.finalize()
         }
     }
 
-    func testMapsSQLiteErrorsAndReportsRuntimeDiagnostics() throws {
+    @Test func mapsSQLiteErrorsAndReportsRuntimeDiagnostics() throws {
         try withTemporaryDatabase { databaseURL in
             let connection = try SQLiteConnection(url: databaseURL)
             defer { try? connection.close() }
 
-            XCTAssertFalse(SQLiteConnection.libraryVersion.isEmpty)
-            XCTAssertFalse(SQLiteConnection.compileOptions.isEmpty)
+            #expect(!SQLiteConnection.libraryVersion.isEmpty)
+            #expect(!SQLiteConnection.compileOptions.isEmpty)
             print(
                 "SQLite \(SQLiteConnection.libraryVersion); "
                     + "\(SQLiteConnection.compileOptions.count) compile options"
             )
 
-            XCTAssertThrowsError(try connection.execute("NOT VALID SQL")) { error in
-                guard let sqliteError = error as? SQLiteError else {
-                    return XCTFail("Expected SQLiteError, got \(error)")
-                }
-
-                XCTAssertEqual(sqliteError.resultCode, 1)
-                XCTAssertEqual(sqliteError.operation, "prepare")
-                XCTAssertEqual(sqliteError.sql, "NOT VALID SQL")
-                XCTAssertFalse(sqliteError.message.isEmpty)
+            do {
+                try connection.execute("NOT VALID SQL")
+                Issue.record("Expected invalid SQL to throw SQLiteError")
+            } catch let sqliteError as SQLiteError {
+                #expect(sqliteError.resultCode == 1)
+                #expect(sqliteError.operation == "prepare")
+                #expect(sqliteError.sql == "NOT VALID SQL")
+                #expect(!sqliteError.message.isEmpty)
+            } catch {
+                Issue.record("Expected SQLiteError, got \(error)")
             }
         }
     }
 
-    func testStatementCanBeResetAndReused() throws {
+    @Test func statementCanBeResetAndReused() throws {
         try withTemporaryDatabase { databaseURL in
             let connection = try SQLiteConnection(url: databaseURL)
             defer { try? connection.close() }
@@ -122,15 +120,15 @@ final class SQLiteSmokeTests: XCTestCase {
             let statement = try connection.prepare("SELECT ?")
 
             try statement.bind("first", at: 1)
-            XCTAssertEqual(try statement.step(), .row)
-            XCTAssertEqual(statement.string(at: 0), "first")
-            XCTAssertEqual(try statement.step(), .done)
+            #expect(try statement.step() == .row)
+            #expect(statement.string(at: 0) == "first")
+            #expect(try statement.step() == .done)
 
             try statement.reset()
             try statement.bind("second", at: 1)
-            XCTAssertEqual(try statement.step(), .row)
-            XCTAssertEqual(statement.string(at: 0), "second")
-            XCTAssertEqual(try statement.step(), .done)
+            #expect(try statement.step() == .row)
+            #expect(statement.string(at: 0) == "second")
+            #expect(try statement.step() == .done)
             try statement.finalize()
         }
     }

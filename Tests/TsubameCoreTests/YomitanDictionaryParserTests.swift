@@ -1,12 +1,13 @@
 import Foundation
-import XCTest
+import Testing
 @testable import TsubameCore
 
-final class YomitanDictionaryParserTests: XCTestCase {
-    private let parser = YomitanDictionaryParser()
-    private let fileManager = FileManager.default
+@Suite
+struct YomitanDictionaryParserTests {
+    private var parser: YomitanDictionaryParser { YomitanDictionaryParser() }
+    private var fileManager: FileManager { FileManager.default }
 
-    func testParsesDictionaryDirectory() throws {
+    @Test func parsesDictionaryDirectory() throws {
         try withTemporaryDirectory { directory in
             try write(
                 #"{"title":"Test Dictionary","format":3,"revision":"1","sequenced":true}"#,
@@ -41,32 +42,30 @@ final class YomitanDictionaryParserTests: XCTestCase {
                 source: DictionaryImportSource(url: directory)
             )
 
-            XCTAssertEqual(preview.index.title, "Test Dictionary")
-            XCTAssertEqual(preview.termBanks.map(\.fileName), ["term_bank_1.json", "term_bank_2.json"])
-            XCTAssertEqual(preview.totalEntries, 2)
-            XCTAssertEqual(preview.totalTermMetadata, 1)
-            XCTAssertEqual(preview.totalKanji, 1)
-            XCTAssertEqual(preview.totalKanjiMetadata, 1)
-            XCTAssertEqual(preview.totalTags, 1)
+            #expect(preview.index.title == "Test Dictionary")
+            #expect(preview.termBanks.map(\.fileName) == ["term_bank_1.json", "term_bank_2.json"])
+            #expect(preview.totalEntries == 2)
+            #expect(preview.totalTermMetadata == 1)
+            #expect(preview.totalKanji == 1)
+            #expect(preview.totalKanjiMetadata == 1)
+            #expect(preview.totalTags == 1)
         }
     }
 
-    func testRejectsDirectoryWithoutIndex() throws {
+    @Test func rejectsDirectoryWithoutIndex() throws {
         try withTemporaryDirectory { directory in
-            XCTAssertThrowsError(
-                try parser.parse(source: DictionaryImportSource(url: directory))
-            ) { error in
-                guard let importError = error as? DictionaryImportError,
-                      case .missingIndex(let reportedDirectory) = importError else {
-                    return XCTFail("Expected DictionaryImportError.missingIndex, got \(error)")
-                }
-
-                XCTAssertEqual(reportedDirectory, directory)
+            do {
+                _ = try parser.parse(source: DictionaryImportSource(url: directory))
+                Issue.record("Expected DictionaryImportError.missingIndex")
+            } catch let DictionaryImportError.missingIndex(reportedDirectory) {
+                #expect(reportedDirectory == directory)
+            } catch {
+                Issue.record("Expected DictionaryImportError.missingIndex, got \(error)")
             }
         }
     }
 
-    func testParsesMetadataOnlyDictionary() throws {
+    @Test func parsesMetadataOnlyDictionary() throws {
         try withTemporaryDirectory { directory in
             try write(
                 #"{"title":"Frequency","format":3,"revision":"1","frequencyMode":"rank-based"}"#,
@@ -81,33 +80,31 @@ final class YomitanDictionaryParserTests: XCTestCase {
                 source: DictionaryImportSource(url: directory)
             )
 
-            XCTAssertNil(preview.index.sequenced)
-            XCTAssertEqual(preview.totalEntries, 0)
-            XCTAssertEqual(preview.totalTermMetadata, 1)
+            #expect(preview.index.sequenced == nil)
+            #expect(preview.totalEntries == 0)
+            #expect(preview.totalTermMetadata == 1)
         }
     }
 
-    func testRejectsDirectoryWithoutSupportedBanks() throws {
+    @Test func rejectsDirectoryWithoutSupportedBanks() throws {
         try withTemporaryDirectory { directory in
             try write(
                 #"{"title":"Test Dictionary","format":3,"revision":"1","sequenced":true}"#,
                 to: directory.appending(path: "index.json")
             )
 
-            XCTAssertThrowsError(
-                try parser.parse(source: DictionaryImportSource(url: directory))
-            ) { error in
-                guard let importError = error as? DictionaryImportError,
-                      case .noSupportedBanks(let reportedDirectory) = importError else {
-                    return XCTFail("Expected DictionaryImportError.noSupportedBanks, got \(error)")
-                }
-
-                XCTAssertEqual(reportedDirectory, directory)
+            do {
+                _ = try parser.parse(source: DictionaryImportSource(url: directory))
+                Issue.record("Expected DictionaryImportError.noSupportedBanks")
+            } catch let DictionaryImportError.noSupportedBanks(reportedDirectory) {
+                #expect(reportedDirectory == directory)
+            } catch {
+                Issue.record("Expected DictionaryImportError.noSupportedBanks, got \(error)")
             }
         }
     }
 
-    func testRejectsUnsupportedDictionaryFormat() throws {
+    @Test func rejectsUnsupportedDictionaryFormat() throws {
         try withTemporaryDirectory { directory in
             try write(
                 #"{"title":"Legacy Dictionary","format":1,"revision":"1"}"#,
@@ -118,13 +115,13 @@ final class YomitanDictionaryParserTests: XCTestCase {
                 to: directory.appending(path: "term_bank_1.json")
             )
 
-            XCTAssertThrowsError(
-                try parser.parse(source: DictionaryImportSource(url: directory))
-            ) { error in
-                guard let importError = error as? DictionaryImportError,
-                      case .unsupportedFormat = importError else {
-                    return XCTFail("Expected DictionaryImportError.unsupportedFormat, got \(error)")
-                }
+            do {
+                _ = try parser.parse(source: DictionaryImportSource(url: directory))
+                Issue.record("Expected DictionaryImportError.unsupportedFormat")
+            } catch DictionaryImportError.unsupportedFormat {
+                // Expected.
+            } catch {
+                Issue.record("Expected DictionaryImportError.unsupportedFormat, got \(error)")
             }
         }
     }
