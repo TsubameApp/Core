@@ -14,11 +14,29 @@ enum ImportPreviewCommand {
             print("[import] \(termBank.fileName): \(termBank.entryCount) entries")
         }
 
+        for metadataBank in preview.termMetadataBanks {
+            print("[import] \(metadataBank.fileName): \(metadataBank.entryCount) metadata entries")
+        }
+
+        for kanjiBank in preview.kanjiBanks {
+            print("[import] \(kanjiBank.fileName): \(kanjiBank.entryCount) kanji entries")
+        }
+
+        for metadataBank in preview.kanjiMetadataBanks {
+            print("[import] \(metadataBank.fileName): \(metadataBank.entryCount) kanji metadata entries")
+        }
+
         for tagBank in preview.tagBanks {
             print("[import] \(tagBank.fileName): \(tagBank.entryCount) tags")
         }
 
-        print("[import] Done. Parsed \(preview.totalEntries) entries and \(preview.totalTags) tags.")
+        print(
+            "[import] Done. Parsed \(preview.totalEntries) terms, "
+                + "\(preview.totalTermMetadata) metadata entries, "
+                + "\(preview.totalKanji) kanji, "
+                + "\(preview.totalKanjiMetadata) kanji metadata entries and "
+                + "\(preview.totalTags) tags."
+        )
         print("[import] Dry run only: no SQLite database was written.")
     }
 }

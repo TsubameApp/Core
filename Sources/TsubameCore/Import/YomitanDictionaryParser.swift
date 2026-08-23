@@ -17,6 +17,9 @@ public struct YomitanBankSummary: Sendable, Equatable {
 public struct YomitanDictionaryPreview: Sendable, Equatable {
     public let index: YomitanDictionaryIndex
     public let termBanks: [YomitanBankSummary]
+    public let termMetadataBanks: [YomitanBankSummary]
+    public let kanjiBanks: [YomitanBankSummary]
+    public let kanjiMetadataBanks: [YomitanBankSummary]
     public let tagBanks: [YomitanBankSummary]
 
     public var totalEntries: Int {
@@ -25,6 +28,18 @@ public struct YomitanDictionaryPreview: Sendable, Equatable {
 
     public var totalTags: Int {
         tagBanks.reduce(0) { $0 + $1.entryCount }
+    }
+
+    public var totalTermMetadata: Int {
+        termMetadataBanks.reduce(0) { $0 + $1.entryCount }
+    }
+
+    public var totalKanji: Int {
+        kanjiBanks.reduce(0) { $0 + $1.entryCount }
+    }
+
+    public var totalKanjiMetadata: Int {
+        kanjiMetadataBanks.reduce(0) { $0 + $1.entryCount }
     }
 }
 
@@ -51,19 +66,49 @@ public struct YomitanDictionaryParser: Sendable {
             YomitanDictionaryIndex.self,
             from: Data(contentsOf: indexURL)
         )
+        guard index.format == 3 else {
+            throw DictionaryImportError.unsupportedFormat
+        }
         let files = try fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: nil
         )
         let termBankURLs = bankFiles(named: "term_bank_", in: files)
+        let termMetadataBankURLs = bankFiles(named: "term_meta_bank_", in: files)
+        let kanjiBankURLs = bankFiles(named: "kanji_bank_", in: files)
+        let kanjiMetadataBankURLs = bankFiles(named: "kanji_meta_bank_", in: files)
 
-        guard !termBankURLs.isEmpty else {
-            throw DictionaryImportError.noTermBanks(directory)
+        guard !termBankURLs.isEmpty
+                || !termMetadataBankURLs.isEmpty
+                || !kanjiBankURLs.isEmpty
+                || !kanjiMetadataBankURLs.isEmpty else {
+            throw DictionaryImportError.noSupportedBanks(directory)
         }
 
         let termBanks = try termBankURLs.map { url in
             let entries = try decoder.decode(
                 [YomitanTermEntry].self,
+                from: Data(contentsOf: url)
+            )
+            return YomitanBankSummary(fileName: url.lastPathComponent, entryCount: entries.count)
+        }
+        let termMetadataBanks = try termMetadataBankURLs.map { url in
+            let entries = try decoder.decode(
+                [YomitanTermMetadata].self,
+                from: Data(contentsOf: url)
+            )
+            return YomitanBankSummary(fileName: url.lastPathComponent, entryCount: entries.count)
+        }
+        let kanjiBanks = try kanjiBankURLs.map { url in
+            let entries = try decoder.decode(
+                [YomitanKanjiEntry].self,
+                from: Data(contentsOf: url)
+            )
+            return YomitanBankSummary(fileName: url.lastPathComponent, entryCount: entries.count)
+        }
+        let kanjiMetadataBanks = try kanjiMetadataBankURLs.map { url in
+            let entries = try decoder.decode(
+                [YomitanKanjiMetadata].self,
                 from: Data(contentsOf: url)
             )
             return YomitanBankSummary(fileName: url.lastPathComponent, entryCount: entries.count)
@@ -79,6 +124,9 @@ public struct YomitanDictionaryParser: Sendable {
         return YomitanDictionaryPreview(
             index: index,
             termBanks: termBanks,
+            termMetadataBanks: termMetadataBanks,
+            kanjiBanks: kanjiBanks,
+            kanjiMetadataBanks: kanjiMetadataBanks,
             tagBanks: tagBanks
         )
     }

@@ -11,7 +11,7 @@ import Foundation
 public enum DictionaryImportError: LocalizedError {
     case sourceIsNotDirectory(URL)
     case missingIndex(URL)
-    case noTermBanks(URL)
+    case noSupportedBanks(URL)
     case unsupportedFormat
     case invalidDictionary
     case cancelled
@@ -22,8 +22,8 @@ public enum DictionaryImportError: LocalizedError {
             return "Dictionary source is not a directory: \(source.path)"
         case .missingIndex(let directory):
             return "index.json was not found in \(directory.path)"
-        case .noTermBanks(let directory):
-            return "No term_bank_*.json files were found in \(directory.path)"
+        case .noSupportedBanks(let directory):
+            return "No supported Yomitan bank files were found in \(directory.path)"
         case .unsupportedFormat:
             return "The dictionary format is not supported."
         case .invalidDictionary:

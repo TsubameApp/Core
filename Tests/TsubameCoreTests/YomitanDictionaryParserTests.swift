@@ -24,6 +24,18 @@ final class YomitanDictionaryParserTests: XCTestCase {
                 #"[["common","frequency",1,"Common term",5]]"#,
                 to: directory.appending(path: "tag_bank_1.json")
             )
+            try write(
+                #"[["の","freq",1]]"#,
+                to: directory.appending(path: "term_meta_bank_1.json")
+            )
+            try write(
+                #"[["亜","ア","つ.ぐ","jouyou",["Asia"],{"strokes":"7"}]]"#,
+                to: directory.appending(path: "kanji_bank_1.json")
+            )
+            try write(
+                #"[["亜","freq",1509]]"#,
+                to: directory.appending(path: "kanji_meta_bank_1.json")
+            )
 
             let preview = try parser.parse(
                 source: DictionaryImportSource(url: directory)
@@ -32,6 +44,9 @@ final class YomitanDictionaryParserTests: XCTestCase {
             XCTAssertEqual(preview.index.title, "Test Dictionary")
             XCTAssertEqual(preview.termBanks.map(\.fileName), ["term_bank_1.json", "term_bank_2.json"])
             XCTAssertEqual(preview.totalEntries, 2)
+            XCTAssertEqual(preview.totalTermMetadata, 1)
+            XCTAssertEqual(preview.totalKanji, 1)
+            XCTAssertEqual(preview.totalKanjiMetadata, 1)
             XCTAssertEqual(preview.totalTags, 1)
         }
     }
@@ -51,7 +66,28 @@ final class YomitanDictionaryParserTests: XCTestCase {
         }
     }
 
-    func testRejectsDirectoryWithoutTermBanks() throws {
+    func testParsesMetadataOnlyDictionary() throws {
+        try withTemporaryDirectory { directory in
+            try write(
+                #"{"title":"Frequency","format":3,"revision":"1","frequencyMode":"rank-based"}"#,
+                to: directory.appending(path: "index.json")
+            )
+            try write(
+                #"[["の","freq",{"value":1,"displayValue":"1㋕"}]]"#,
+                to: directory.appending(path: "term_meta_bank_1.json")
+            )
+
+            let preview = try parser.parse(
+                source: DictionaryImportSource(url: directory)
+            )
+
+            XCTAssertNil(preview.index.sequenced)
+            XCTAssertEqual(preview.totalEntries, 0)
+            XCTAssertEqual(preview.totalTermMetadata, 1)
+        }
+    }
+
+    func testRejectsDirectoryWithoutSupportedBanks() throws {
         try withTemporaryDirectory { directory in
             try write(
                 #"{"title":"Test Dictionary","format":3,"revision":"1","sequenced":true}"#,
@@ -62,11 +98,33 @@ final class YomitanDictionaryParserTests: XCTestCase {
                 try parser.parse(source: DictionaryImportSource(url: directory))
             ) { error in
                 guard let importError = error as? DictionaryImportError,
-                      case .noTermBanks(let reportedDirectory) = importError else {
-                    return XCTFail("Expected DictionaryImportError.noTermBanks, got \(error)")
+                      case .noSupportedBanks(let reportedDirectory) = importError else {
+                    return XCTFail("Expected DictionaryImportError.noSupportedBanks, got \(error)")
                 }
 
                 XCTAssertEqual(reportedDirectory, directory)
+            }
+        }
+    }
+
+    func testRejectsUnsupportedDictionaryFormat() throws {
+        try withTemporaryDirectory { directory in
+            try write(
+                #"{"title":"Legacy Dictionary","format":1,"revision":"1"}"#,
+                to: directory.appending(path: "index.json")
+            )
+            try write(
+                #"[]"#,
+                to: directory.appending(path: "term_bank_1.json")
+            )
+
+            XCTAssertThrowsError(
+                try parser.parse(source: DictionaryImportSource(url: directory))
+            ) { error in
+                guard let importError = error as? DictionaryImportError,
+                      case .unsupportedFormat = importError else {
+                    return XCTFail("Expected DictionaryImportError.unsupportedFormat, got \(error)")
+                }
             }
         }
     }
