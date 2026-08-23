@@ -8,21 +8,32 @@ final class DictionaryLibraryLayoutTests: XCTestCase {
 
     func testBuildsDurableLayoutFromInjectedDataRoot() {
         let layout = makeLayout()
+        let dictionaryComponent = dictionaryID.uuidString.lowercased()
+        let importComponent = importID.uuidString.lowercased()
 
-        XCTAssertEqual(layout.applicationDatabaseURL.path, "/test/data/application.sqlite")
-        XCTAssertEqual(layout.dictionariesRootURL.path, "/test/data/Dictionaries")
-        XCTAssertEqual(layout.publicationStagingRootURL.path, "/test/data/Dictionaries/.staging")
         XCTAssertEqual(
-            layout.publicationStagingURL(for: importID).path,
-            "/test/data/Dictionaries/.staging/44f9bee7-2a44-4ea3-8095-d05b84b06738"
+            layout.applicationDatabaseURL,
+            layout.locations.dataRoot.appending(path: "application.sqlite")
         )
         XCTAssertEqual(
-            layout.dictionaryDatabaseURL(for: dictionaryID).path,
-            "/test/data/Dictionaries/a6a53a94-665a-43e4-877d-6f9bce107d01/dictionary.sqlite"
+            layout.dictionariesRootURL,
+            layout.locations.dataRoot.appending(path: "Dictionaries", directoryHint: .isDirectory)
         )
         XCTAssertEqual(
-            layout.dictionaryManifestURL(for: dictionaryID).path,
-            "/test/data/Dictionaries/a6a53a94-665a-43e4-877d-6f9bce107d01/manifest.json"
+            layout.publicationStagingURL(for: importID),
+            layout.publicationStagingRootURL.appending(path: importComponent, directoryHint: .isDirectory)
+        )
+        XCTAssertEqual(
+            layout.dictionaryDatabaseURL(for: dictionaryID),
+            layout.dictionariesRootURL
+                .appending(path: dictionaryComponent, directoryHint: .isDirectory)
+                .appending(path: "dictionary.sqlite")
+        )
+        XCTAssertEqual(
+            layout.dictionaryManifestURL(for: dictionaryID),
+            layout.dictionariesRootURL
+                .appending(path: dictionaryComponent, directoryHint: .isDirectory)
+                .appending(path: "manifest.json")
         )
     }
 
@@ -30,25 +41,32 @@ final class DictionaryLibraryLayoutTests: XCTestCase {
         let layout = makeLayout()
 
         XCTAssertEqual(
-            layout.temporaryWorkingURL(for: importID).path,
-            "/test/tmp/Tsubame/44f9bee7-2a44-4ea3-8095-d05b84b06738"
+            layout.temporaryWorkingURL(for: importID),
+            layout.locations.temporaryRoot
+                .appending(path: "Tsubame", directoryHint: .isDirectory)
+                .appending(path: importID.uuidString.lowercased(), directoryHint: .isDirectory)
         )
-        XCTAssertTrue(layout.publicationStagingURL(for: importID).path.hasPrefix("/test/data/"))
-        XCTAssertFalse(layout.publicationStagingURL(for: importID).path.hasPrefix("/test/tmp/"))
+        XCTAssertTrue(
+            layout.publicationStagingURL(for: importID).path.hasPrefix(layout.locations.dataRoot.path)
+        )
+        XCTAssertFalse(
+            layout.publicationStagingURL(for: importID).path.hasPrefix(layout.locations.temporaryRoot.path)
+        )
     }
 
     func testResolvesValidResourcePathsInsideDictionaryBundle() throws {
         let layout = makeLayout()
         let image = try DictionaryResourcePath("images/0005.png")
         let nestedSVG = try DictionaryResourcePath("jitendex/noun.svg")
+        let resourcesRoot = layout.resourcesRootURL(for: dictionaryID)
 
         XCTAssertEqual(
-            layout.resourceURL(for: image, dictionaryID: dictionaryID).path,
-            "/test/data/Dictionaries/a6a53a94-665a-43e4-877d-6f9bce107d01/resources/images/0005.png"
+            layout.resourceURL(for: image, dictionaryID: dictionaryID),
+            resourcesRoot.appending(path: "images").appending(path: "0005.png")
         )
         XCTAssertEqual(
-            layout.resourceURL(for: nestedSVG, dictionaryID: dictionaryID).path,
-            "/test/data/Dictionaries/a6a53a94-665a-43e4-877d-6f9bce107d01/resources/jitendex/noun.svg"
+            layout.resourceURL(for: nestedSVG, dictionaryID: dictionaryID),
+            resourcesRoot.appending(path: "jitendex").appending(path: "noun.svg")
         )
     }
 
@@ -84,11 +102,16 @@ final class DictionaryLibraryLayoutTests: XCTestCase {
     }
 
     private func makeLayout() -> DictionaryLibraryLayout {
-        DictionaryLibraryLayout(
+        let root = FileManager.default.temporaryDirectory.appending(
+            path: "TsubameLayoutTests",
+            directoryHint: .isDirectory
+        )
+
+        return DictionaryLibraryLayout(
             locations: TsubameStorageLocations(
-                dataRoot: URL(filePath: "/test/data", directoryHint: .isDirectory),
-                cacheRoot: URL(filePath: "/test/cache", directoryHint: .isDirectory),
-                temporaryRoot: URL(filePath: "/test/tmp", directoryHint: .isDirectory)
+                dataRoot: root.appending(path: "data", directoryHint: .isDirectory),
+                cacheRoot: root.appending(path: "cache", directoryHint: .isDirectory),
+                temporaryRoot: root.appending(path: "temporary", directoryHint: .isDirectory)
             )
         )
     }

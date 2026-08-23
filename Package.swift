@@ -11,7 +11,30 @@ let package = Package(
         .executable(name: "TsubameCLI", targets: ["TsubameCLI"])
     ],
     targets: [
-        .target(name: "TsubameCore"),
+        .systemLibrary(name: "CSQLiteSystem"),
+        .target(
+            name: "CSQLiteBundled",
+            path: "Sources/CSQLiteBundled",
+            publicHeadersPath: "include",
+            cSettings: [
+                .define("SQLITE_DQS", to: "0"),
+                .define("SQLITE_OMIT_LOAD_EXTENSION"),
+                .define("SQLITE_THREADSAFE", to: "1")
+            ]
+        ),
+        .target(
+            name: "TsubameCore",
+            dependencies: [
+                .target(
+                    name: "CSQLiteSystem",
+                    condition: .when(platforms: [.macOS, .linux])
+                ),
+                .target(
+                    name: "CSQLiteBundled",
+                    condition: .when(platforms: [.windows])
+                )
+            ]
+        ),
         .executableTarget(name: "TsubameCLI", dependencies: ["TsubameCore"]),
         .testTarget(name: "TsubameCoreTests", dependencies: ["TsubameCore"])
     ]
