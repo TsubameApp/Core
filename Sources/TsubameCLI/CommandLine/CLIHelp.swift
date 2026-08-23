@@ -3,6 +3,6 @@ enum CLIHelp {
     Usage: TsubameCLI <command> [arguments]
 
     Commands:
-      import <dictionary-directory>  Parse and inspect a Yomitan dictionary.
+      import <dictionary.zip|directory>  Extract, parse, and inspect a Yomitan dictionary.
     """
 }

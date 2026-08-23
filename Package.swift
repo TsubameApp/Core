@@ -11,10 +11,13 @@ let package = Package(
         .executable(name: "TsubameCLI", targets: ["TsubameCLI"])
     ],
     targets: [
-        .systemLibrary(name: "CSQLiteSystem"),
+        .systemLibrary(
+            name: "CSQLiteSystem",
+            path: "Sources/ThirdParty/CSQLiteSystem"
+        ),
         .target(
             name: "CSQLiteBundled",
-            path: "Sources/CSQLiteBundled",
+            path: "Sources/ThirdParty/CSQLiteBundled",
             publicHeadersPath: "include",
             cSettings: [
                 .define("SQLITE_DQS", to: "0"),
@@ -23,8 +26,25 @@ let package = Package(
             ]
         ),
         .target(
+            name: "CMiniz",
+            path: "Sources/ThirdParty/CMiniz",
+            publicHeadersPath: "include",
+            cSettings: [
+                .define("MINIZ_NO_DEFLATE_APIS"),
+                .define("MINIZ_NO_ZLIB_APIS"),
+                .define("MINIZ_NO_ZLIB_COMPATIBLE_NAMES")
+            ]
+        ),
+        .target(
+            name: "CTsubameZIP",
+            dependencies: ["CMiniz"],
+            path: "Sources/Interop/CTsubameZIP",
+            publicHeadersPath: "include"
+        ),
+        .target(
             name: "TsubameCore",
             dependencies: [
+                "CTsubameZIP",
                 .target(
                     name: "CSQLiteSystem",
                     condition: .when(platforms: [.macOS, .linux])
