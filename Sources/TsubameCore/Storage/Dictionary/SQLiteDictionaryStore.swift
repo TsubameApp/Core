@@ -133,12 +133,8 @@ private extension SQLiteDictionaryStore {
             let ruleMask = key.requiredRules?.rawValue ?? 0
             return "(?, \(offset), \(requiresRules), \(ruleMask))"
         }.joined(separator: ", ")
-        let selectedCompatibility = ruleCompatibilitySQL(
+        let compatibility = ruleCompatibilitySQL(
             requestedAlias: "requested",
-            entryAlias: "term_entry"
-        )
-        let matchedCompatibility = ruleCompatibilitySQL(
-            requestedAlias: "matched_request",
             entryAlias: "term_entry"
         )
         let statement = try connection.prepare(
@@ -148,20 +144,36 @@ private extension SQLiteDictionaryStore {
             ) AS (
                 VALUES \(requestedValues)
             ),
+            matched(
+                entry_id, key, key_type, request_order, match_rank
+            ) AS MATERIALIZED (
+                SELECT
+                    lookup_key.entry_id,
+                    lookup_key.key,
+                    lookup_key.key_type,
+                    MIN(requested.request_order),
+                    MIN(CASE lookup_key.key_type WHEN 'expression' THEN 0 ELSE 1 END)
+                FROM requested
+                JOIN lookup_key ON lookup_key.key = requested.key
+                JOIN term_entry ON term_entry.id = lookup_key.entry_id
+                WHERE \(compatibility)
+                GROUP BY
+                    lookup_key.entry_id,
+                    lookup_key.key,
+                    lookup_key.key_type
+            ),
             selected(
                 entry_id, first_request_order, first_match_rank, bank_order, entry_order
             ) AS (
                 SELECT
-                    lookup_key.entry_id,
-                    MIN(requested.request_order),
-                    MIN(CASE lookup_key.key_type WHEN 'expression' THEN 0 ELSE 1 END),
+                    matched.entry_id,
+                    MIN(matched.request_order),
+                    MIN(matched.match_rank),
                     term_entry.bank_order,
                     term_entry.entry_order
-                FROM requested
-                JOIN lookup_key ON lookup_key.key = requested.key
-                JOIN term_entry ON term_entry.id = lookup_key.entry_id
-                WHERE \(selectedCompatibility)
-                GROUP BY lookup_key.entry_id
+                FROM matched
+                JOIN term_entry ON term_entry.id = matched.entry_id
+                GROUP BY matched.entry_id
                 ORDER BY 2, 3, 4, 5, 1
                 LIMIT ?
             )
@@ -174,30 +186,19 @@ private extension SQLiteDictionaryStore {
                 term_entry.score,
                 term_entry.sequence,
                 term_entry.term_tags,
-                lookup_key.key,
-                lookup_key.key_type
+                matched.key,
+                matched.key_type
             FROM selected
             JOIN term_entry ON term_entry.id = selected.entry_id
-            JOIN lookup_key ON lookup_key.entry_id = selected.entry_id
-            WHERE EXISTS (
-                SELECT 1
-                FROM requested AS matched_request
-                WHERE matched_request.key = lookup_key.key
-                  AND \(matchedCompatibility)
-            )
+            JOIN matched ON matched.entry_id = selected.entry_id
             ORDER BY
                 selected.first_request_order,
                 selected.first_match_rank,
                 selected.bank_order,
                 selected.entry_order,
                 selected.entry_id,
-                (
-                    SELECT MIN(matched_request.request_order)
-                    FROM requested AS matched_request
-                    WHERE matched_request.key = lookup_key.key
-                      AND \(matchedCompatibility)
-                ),
-                CASE lookup_key.key_type WHEN 'expression' THEN 0 ELSE 1 END
+                matched.request_order,
+                matched.match_rank
             """
         )
         defer { statement.finalizeIgnoringErrors() }
