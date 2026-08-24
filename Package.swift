@@ -8,6 +8,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "TsubameCore", targets: ["TsubameCore"]),
+        .library(name: "TsubameCoreABI", type: .dynamic, targets: ["CTsubameABI"]),
         .executable(name: "TsubameCLI", targets: ["TsubameCLI"])
     ],
     targets: [
@@ -56,6 +57,15 @@ let package = Package(
             ],
             resources: [.process("Resources")]
         ),
+        .target(
+            name: "CTsubameABI",
+            dependencies: ["TsubameCore"],
+            path: "Sources/Interop/CTsubameABI",
+            publicHeadersPath: "include",
+            cSettings: [
+                .define("TSUBAME_ABI_BUILDING")
+            ]
+        ),
         .target(name: "TsubameCLIPlatform", dependencies: ["TsubameCore"]),
         .executableTarget(
             name: "TsubameCLI",
@@ -63,7 +73,7 @@ let package = Package(
         ),
         .testTarget(
             name: "TsubameCoreTests",
-            dependencies: ["TsubameCore"],
+            dependencies: ["TsubameCore", "CTsubameABI"],
             resources: [.process("Resources")]
         ),
         .testTarget(
