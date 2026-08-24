@@ -26,7 +26,7 @@ public final class SQLiteDictionaryStore: DictionaryStore {
             )
         }
 
-        let keys = uniqueNonemptyKeys(keys)
+        let keys = uniqueLookupKeys(keys)
         guard !keys.isEmpty else {
             return []
         }
@@ -95,11 +95,21 @@ private extension SQLiteDictionaryStore {
         try statement.finalize()
     }
 
-    func uniqueNonemptyKeys(_ keys: [String]) -> [String] {
-        var seen: Set<String> = []
-        return keys.filter { key in
-            !key.isEmpty && seen.insert(key).inserted
+    func uniqueLookupKeys(_ keys: [String]) -> [String] {
+        var seenUTF8: Set<Data> = []
+        var lookupKeys: [String] = []
+        lookupKeys.reserveCapacity(keys.count * 2)
+        let normalizer = TextNormalizer()
+
+        for key in keys where !key.isEmpty {
+            let normalizedKey = normalizer.normalizedString(key)
+            for candidate in [key, normalizedKey]
+                where !candidate.isEmpty
+                    && seenUTF8.insert(Data(candidate.utf8)).inserted {
+                lookupKeys.append(candidate)
+            }
         }
+        return lookupKeys
     }
 
     func loadEntries(matching keys: [String], limit: Int) throws -> [StoredEntry] {

@@ -80,6 +80,31 @@ struct SQLiteDictionaryStoreTests {
         }
     }
 
+    @Test func looksUpRawAndNormalizedKeyVariants() throws {
+        try withTemporaryDirectory { directory in
+            let database = try makeDictionaryDatabase(in: directory)
+            let store = try SQLiteDictionaryStore(databaseURL: database)
+
+            let normalizedMatch = try store.lookup(keys: ["ｶﾞｸｾｲ"], limit: 10)
+            #expect(normalizedMatch.map(\.expression) == ["ガクセイ"])
+            #expect(normalizedMatch.first?.matches == [
+                DictionaryEntryMatch(key: "ガクセイ", keyType: .expression)
+            ])
+
+            let composedReadingMatch = try store.lookup(
+                keys: ["か\u{3099}くせい"],
+                limit: 10
+            )
+            #expect(composedReadingMatch.map(\.expression) == ["ガクセイ"])
+            #expect(composedReadingMatch.first?.matches == [
+                DictionaryEntryMatch(key: "がくせい", keyType: .reading)
+            ])
+
+            let rawCompatibilityMatch = try store.lookup(keys: ["㍿"], limit: 10)
+            #expect(rawCompatibilityMatch.map(\.expression) == ["㍿"])
+        }
+    }
+
     @Test func respectsEntryLimit() throws {
         try withTemporaryDirectory { directory in
             let database = try makeDictionaryDatabase(in: directory)
@@ -139,7 +164,7 @@ struct SQLiteDictionaryStoreTests {
             ),
             .file(
                 "term_bank_1.json",
-                #"[["食べる","たべる","v1","v1",10,["to eat",{"type":"structured-content","content":{"tag":"b","content":"bold"}}],42,"common"],["読む","よむ","v5m","v5",5,["to read"],43,""]]"#
+                #"[["食べる","たべる","v1","v1",10,["to eat",{"type":"structured-content","content":{"tag":"b","content":"bold"}}],42,"common"],["読む","よむ","v5m","v5",5,["to read"],43,""],["ガクセイ","がくせい","","",3,["student"],44,""],["㍿","","","",1,["company"],45,""]]"#
             )
         ]).write(to: archive)
 
