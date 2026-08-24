@@ -8,7 +8,7 @@
 import Foundation
 
 /// A half-open byte range in the UTF-8 representation of a string.
-public struct UTF8TextRange: Sendable, Equatable {
+public struct UTF8TextRange: Sendable, Equatable, Hashable {
     public let start: Int
     public let end: Int
 

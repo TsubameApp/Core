@@ -3,6 +3,7 @@ import Foundation
 enum LookupCandidateLimits {
     static let maximumPrefixCharacterCount = 32
     static let maximumPrefixUTF8Length = 256
+    static let maximumLookupKeyCount = 500
 }
 
 struct LookupPrefixCandidate: Sendable, Equatable {

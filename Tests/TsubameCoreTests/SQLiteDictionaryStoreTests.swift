@@ -136,6 +136,75 @@ struct SQLiteDictionaryStoreTests {
         }
     }
 
+    @Test func filtersDeinflectedEntriesByRulesBeforeLimit() throws {
+        try withTemporaryDirectory { directory in
+            let database = try makeDictionaryDatabase(in: directory)
+            let store = try SQLiteDictionaryStore(databaseURL: database)
+
+            let exact = try store.lookup(keys: ["競合"], limit: 1)
+            #expect(exact.first?.reading == "ごだん")
+
+            let ichidan = try store.lookup(
+                keys: [
+                    DictionaryLookupKey(
+                        key: "競合",
+                        requiredRules: .ichidan
+                    ),
+                ],
+                limit: 1
+            )
+            #expect(ichidan.count == 1)
+            #expect(ichidan.first?.reading == "いちだん")
+
+            let incompatible = try store.lookup(
+                keys: [
+                    DictionaryLookupKey(
+                        key: "食べる",
+                        requiredRules: .godan
+                    ),
+                ],
+                limit: 10
+            )
+            #expect(incompatible.isEmpty)
+        }
+    }
+
+    @Test func enforcesPreparedKeyLimitUsingExactUTF8Bytes() throws {
+        try withTemporaryDirectory { directory in
+            let database = try makeDictionaryDatabase(in: directory)
+            let store = try SQLiteDictionaryStore(databaseURL: database)
+            var keys = (0..<499).map {
+                DictionaryLookupKey(key: "missing-\($0)")
+            }
+            keys.append(DictionaryLookupKey(key: "é"))
+            keys.append(DictionaryLookupKey(key: "e\u{301}"))
+
+            #expect(
+                throws: DictionaryStoreError.tooManyLookupKeys(
+                    actual: 501,
+                    maximum: 500
+                )
+            ) {
+                _ = try store.lookup(keys: keys, limit: 1)
+            }
+            #expect(try store.lookup(keys: Array(keys.prefix(500)), limit: 1).isEmpty)
+        }
+    }
+
+    @Test func rejectsEmptyPreparedRuleConstraint() throws {
+        try withTemporaryDirectory { directory in
+            let database = try makeDictionaryDatabase(in: directory)
+            let store = try SQLiteDictionaryStore(databaseURL: database)
+
+            #expect(throws: DictionaryStoreError.emptyRequiredRules) {
+                _ = try store.lookup(
+                    keys: [DictionaryLookupKey(key: "食べる", requiredRules: [])],
+                    limit: 1
+                )
+            }
+        }
+    }
+
     @Test func rejectsUnsupportedDictionarySchema() throws {
         try withTemporaryDirectory { directory in
             let database = directory.appending(path: "old.sqlite")
@@ -164,7 +233,7 @@ struct SQLiteDictionaryStoreTests {
             ),
             .file(
                 "term_bank_1.json",
-                #"[["食べる","たべる","v1","v1",10,["to eat",{"type":"structured-content","content":{"tag":"b","content":"bold"}}],42,"common"],["読む","よむ","v5m","v5",5,["to read"],43,""],["ガクセイ","がくせい","","",3,["student"],44,""],["㍿","","","",1,["company"],45,""]]"#
+                #"[["食べる","たべる","v1","v1",10,["to eat",{"type":"structured-content","content":{"tag":"b","content":"bold"}}],42,"common"],["読む","よむ","v5m","v5",5,["to read"],43,""],["ガクセイ","がくせい","","",3,["student"],44,""],["㍿","","","",1,["company"],45,""],["競合","ごだん","v5k","v5k",0,["godan"],46,""],["競合","いちだん","v1","v1-s",0,["ichidan"],47,""]]"#
             )
         ]).write(to: archive)
 

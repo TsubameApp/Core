@@ -27,31 +27,55 @@ public struct DictionaryLookup {
             return emptyResult(at: request.position)
         }
 
+        let rules = try JapaneseDeinflectionRules.load()
+        let candidateBatch = try LookupCandidateBuilder(rules: rules).build(
+            prefixes: candidates,
+            normalizedText: normalized
+        )
         let entries = try store.lookup(
-            keys: candidates.map(\.key),
+            keys: candidateBatch.lookupKeys,
             limit: request.resultLimit
         )
         guard !entries.isEmpty else {
             return emptyResult(at: request.position)
         }
 
-        for candidate in candidates {
-            let matchingEntries = entries.filter { entry in
-                entry.matches.contains { match in
-                    match.key.utf8.elementsEqual(candidate.key.utf8)
-                }
+        var ranked: [(candidateIndex: Int, storeIndex: Int, entry: DictionaryEntry)] = []
+        ranked.reserveCapacity(entries.count)
+        var seenEntryIDs: Set<Int64> = []
+        for (storeIndex, entry) in entries.enumerated()
+            where seenEntryIDs.insert(entry.id).inserted {
+            let matchBytes = entry.matches.map { Data($0.key.utf8) }
+            let entryRules = DictionaryRuleSet.parse(entry.rules)
+            guard let candidateIndex = candidateBatch.candidates.firstIndex(where: { candidate in
+                guard matchBytes.contains(candidate.keyBytes) else { return false }
+                guard let requiredRules = candidate.requiredRules else { return true }
+                return !requiredRules.intersection(entryRules).isEmpty
+            }) else {
+                continue
             }
-            guard !matchingEntries.isEmpty else { continue }
-
-            let sourceRange = try normalized.originalUTF8Range(
-                forNormalizedUTF8Range: candidate.normalizedRange
-            )
-            return LookupResult(
-                sourceRange: sourceRange,
-                entries: matchingEntries
-            )
+            ranked.append((candidateIndex, storeIndex, entry))
         }
-        return emptyResult(at: request.position)
+        guard let best = ranked.min(by: {
+            if $0.candidateIndex != $1.candidateIndex {
+                return $0.candidateIndex < $1.candidateIndex
+            }
+            return $0.storeIndex < $1.storeIndex
+        }) else {
+            return emptyResult(at: request.position)
+        }
+        let bestRange = candidateBatch.candidates[best.candidateIndex].sourceRange
+        let resultEntries = ranked
+            .filter { candidateBatch.candidates[$0.candidateIndex].sourceRange == bestRange }
+            .sorted {
+                if $0.candidateIndex != $1.candidateIndex {
+                    return $0.candidateIndex < $1.candidateIndex
+                }
+                return $0.storeIndex < $1.storeIndex
+            }
+            .prefix(request.resultLimit)
+            .map(\.entry)
+        return LookupResult(sourceRange: bestRange, entries: resultEntries)
     }
 
     private func emptyResult(at position: Int) -> LookupResult {

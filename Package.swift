@@ -53,14 +53,19 @@ let package = Package(
                     name: "CSQLiteBundled",
                     condition: .when(platforms: [.windows])
                 )
-            ]
+            ],
+            resources: [.process("Resources")]
         ),
         .target(name: "TsubameCLIPlatform", dependencies: ["TsubameCore"]),
         .executableTarget(
             name: "TsubameCLI",
             dependencies: ["TsubameCore", "TsubameCLIPlatform"]
         ),
-        .testTarget(name: "TsubameCoreTests", dependencies: ["TsubameCore"]),
+        .testTarget(
+            name: "TsubameCoreTests",
+            dependencies: ["TsubameCore"],
+            resources: [.process("Resources")]
+        ),
         .testTarget(
             name: "TsubameCLIPlatformTests",
             dependencies: ["TsubameCLIPlatform"],

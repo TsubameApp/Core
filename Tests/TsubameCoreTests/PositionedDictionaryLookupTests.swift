@@ -48,7 +48,13 @@ struct PositionedDictionaryLookupTests {
         let result = try lookup.lookup(request)
 
         #expect(store.lookupCount == 1)
-        #expect(store.receivedKeys == ["食べる。", "食べる", "食べ", "食"])
+        for exactKey in ["食べる。", "食べる", "食べ", "食"] {
+            #expect(
+                store.receivedLookupKeys.contains {
+                    $0.key == exactKey && $0.requiredRules == nil
+                }
+            )
+        }
         #expect(result.sourceRange == UTF8TextRange(start: 0, end: 6))
         #expect(result.entries.map(\.expression) == ["食べ"])
     }
@@ -63,6 +69,60 @@ struct PositionedDictionaryLookupTests {
         #expect(result.sourceRange == UTF8TextRange(start: 0, end: 0))
         #expect(result.entries.isEmpty)
         #expect(store.lookupCount == 1)
+    }
+
+    @Test func deinflectsRequiredJapaneseFormsAndKeepsSurfaceRange() throws {
+        try withTemporaryDirectory { directory in
+            let store = try makeDictionaryStore(in: directory)
+            let lookup = DictionaryLookup(store: store)
+            let cases = [
+                ("食べました", "食べる"),
+                ("食べなかった", "食べる"),
+                ("読んだ", "読む"),
+                ("書いた", "書く"),
+                ("話した", "話す"),
+            ]
+
+            for (surface, lemma) in cases {
+                let result = try lookup.lookup(
+                    PositionedLookupRequest(text: surface + "。", position: 0)
+                )
+                #expect(
+                    result.sourceRange == UTF8TextRange(
+                        start: 0,
+                        end: surface.utf8.count
+                    )
+                )
+                #expect(result.entries.first?.expression == lemma)
+            }
+        }
+    }
+
+    @Test func ranksExactBeforeDeinflectedForSameSurface() throws {
+        let exact = makeEntry(id: 1, expression: "食べました", rules: "")
+        let lemma = makeEntry(id: 2, expression: "食べる", rules: "v1")
+        let store = RecordingDictionaryStore(entries: [lemma, exact])
+        let lookup = DictionaryLookup(store: store)
+
+        let result = try lookup.lookup(
+            PositionedLookupRequest(text: "食べました。", position: 0)
+        )
+
+        #expect(result.entries.map(\.expression) == ["食べました", "食べる"])
+    }
+
+    @Test func ranksLongerDeinflectedSurfaceBeforeShorterExactSurface() throws {
+        let shorterExact = makeEntry(id: 1, expression: "食", rules: "")
+        let longerLemma = makeEntry(id: 2, expression: "食べる", rules: "v1")
+        let store = RecordingDictionaryStore(entries: [shorterExact, longerLemma])
+        let lookup = DictionaryLookup(store: store)
+
+        let result = try lookup.lookup(
+            PositionedLookupRequest(text: "食べました。", position: 0)
+        )
+
+        #expect(result.sourceRange == UTF8TextRange(start: 0, end: 15))
+        #expect(result.entries.map(\.expression) == ["食べる"])
     }
 
     @Test func returnsWithoutQueryingAtEndOfText() throws {
@@ -120,7 +180,7 @@ struct PositionedDictionaryLookupTests {
             ),
             .file(
                 "term_bank_1.json",
-                #"[["食べる","たべる","","",10,["to eat"],1,""],["食","しょく","","",5,["food"],2,""],["ガクセイ","がくせい","","",3,["student"],3,""]]"#
+                #"[["食べる","たべる","v1","v1",10,["to eat"],1,""],["読む","よむ","v5m","v5",9,["to read"],2,""],["書く","かく","v5k","v5",8,["to write"],3,""],["話す","はなす","v5s","v5",7,["to speak"],4,""],["食","しょく","","",5,["food"],5,""],["ガクセイ","がくせい","","",3,["student"],6,""]]"#
             )
         ]).write(to: archive)
 
@@ -133,13 +193,17 @@ struct PositionedDictionaryLookupTests {
         return try SQLiteDictionaryStore(databaseURL: database)
     }
 
-    private func makeEntry(id: Int64, expression: String) -> DictionaryEntry {
+    private func makeEntry(
+        id: Int64,
+        expression: String,
+        rules: String = ""
+    ) -> DictionaryEntry {
         DictionaryEntry(
             id: id,
             expression: expression,
             reading: "",
             definitionTags: nil,
-            rules: "",
+            rules: rules,
             score: 0,
             sequence: -1,
             termTags: "",
@@ -164,15 +228,20 @@ struct PositionedDictionaryLookupTests {
 private final class RecordingDictionaryStore: DictionaryStore {
     private(set) var lookupCount = 0
     private(set) var receivedKeys: [String] = []
+    private(set) var receivedLookupKeys: [DictionaryLookupKey] = []
     private let entries: [DictionaryEntry]
 
     init(entries: [DictionaryEntry]) {
         self.entries = entries
     }
 
-    func lookup(keys: [String], limit: Int) throws -> [DictionaryEntry] {
+    func lookup(
+        keys: [DictionaryLookupKey],
+        limit: Int
+    ) throws -> [DictionaryEntry] {
         lookupCount += 1
-        receivedKeys = keys
+        receivedLookupKeys = keys
+        receivedKeys = keys.map(\.key)
         return Array(entries.prefix(limit))
     }
 }
