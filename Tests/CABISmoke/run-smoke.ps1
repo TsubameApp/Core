@@ -37,7 +37,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     "-I$includePath" -x c++ -fsyntax-only $sourcePath
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-& swiftc $objectPath "-L$binPath" -lTsubameCoreABI -o $executablePath
+# This executable is pure C. Using swiftc here adds swiftrt.obj on Windows even
+# though the client has no Swift code, which leaves swiftCore unresolved.
+& clang $objectPath "-L$binPath" -lTsubameCoreABI -o $executablePath
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $exports = & llvm-readobj --coff-exports "$binPath/TsubameCoreABI.dll"

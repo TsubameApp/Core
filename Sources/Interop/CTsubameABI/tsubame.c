@@ -1,6 +1,29 @@
 #include "tsubame.h"
 
-#pragma clang module import TsubameCore
+/* Private bridge implemented by @c functions in TsubameCore. Keep these
+ * declarations out of the public header: clients only use the stable wrapper
+ * functions below. SwiftPM does not expose generated Swift compatibility
+ * headers to dependent C targets consistently on every supported platform. */
+extern uint32_t tsubame_swift_abi_version(void);
+extern TsubameStatus tsubame_swift_engine_create(
+    const uint8_t *database_path,
+    size_t database_path_length,
+    void **out_engine,
+    uint8_t **out_error_data,
+    size_t *out_error_length
+);
+extern void tsubame_swift_engine_destroy(void *engine);
+extern TsubameStatus tsubame_swift_engine_execute(
+    void *engine,
+    uint32_t serialization,
+    const uint8_t *request,
+    size_t request_length,
+    uint8_t **out_result_data,
+    size_t *out_result_length,
+    uint8_t **out_error_data,
+    size_t *out_error_length
+);
+extern void tsubame_swift_buffer_free(uint8_t *data);
 
 uint32_t
 tsubame_abi_version(void) {
