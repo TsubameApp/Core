@@ -13,9 +13,17 @@ enum CLIHelp {
           Look up text from its start in all imported dictionaries.
           Includes Unicode normalization and Japanese deinflection.
 
+      scan <text> [--range <start>:<end>] [--data-root <path>] [--debug]
+          Find all dictionary matches starting inside a UTF-8 byte range.
+          Without --range, scans the complete text.
+
       bench lookup <text> [--data-root <path>] [--warmup <count>] [--iterations <count>]
           Benchmark cold and warmed positioned lookup in one process.
           Defaults to 20 warmup and 1000 measured iterations.
+
+      bench scan <text> [--range <start>:<end>] [--data-root <path>] [--warmup <count>] [--iterations <count>]
+          Benchmark cold and warmed range scan in one process.
+          Without --range, scans the complete text.
 
       By default, commands use the platform application-data directory.
       --data-root overrides it for development and testing.

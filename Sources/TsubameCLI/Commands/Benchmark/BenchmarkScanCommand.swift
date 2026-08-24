@@ -2,9 +2,10 @@ import Foundation
 import TsubameCore
 import TsubameCLIPlatform
 
-enum BenchmarkLookupCommand {
+enum BenchmarkScanCommand {
     static func run(
         text: String,
+        range: UTF8TextRange?,
         dataRootOverride: URL?,
         warmupIterations: Int,
         measuredIterations: Int
@@ -17,9 +18,12 @@ enum BenchmarkLookupCommand {
         )
         let layout = DictionaryLibraryLayout(locations: locations)
         let dictionaries = try InstalledDictionaryLibrary.load(layout: layout)
-        let request = try PositionedLookupRequest(text: text, position: 0)
+        let scanRange = range ?? UTF8TextRange(start: 0, end: text.utf8.count)
+        let request = try ScanLookupRequest(text: text, range: scanRange)
 
+        print("[bench] Operation: scan")
         print("[bench] Text: \(text)")
+        print("[bench] Range: \(scanRange.start)..<\(scanRange.end)")
         print("[bench] Data root: \(locations.dataRoot.path)")
         print("[bench] Dictionaries: \(dictionaries.count)")
         print("[bench] Warmup iterations: \(warmupIterations)")
@@ -41,23 +45,24 @@ enum BenchmarkLookupCommand {
             let lookup = DictionaryLookup(store: store)
 
             let firstStartedAt = ContinuousClock.now
-            let firstResult = try lookup.lookup(request)
+            let firstResults = try lookup.scan(request)
             let firstMilliseconds = CLIOutput.milliseconds(since: firstStartedAt)
-            checksum &+= resultChecksum(firstResult)
+            checksum &+= resultsChecksum(firstResults)
 
             for _ in 0..<warmupIterations {
-                checksum &+= resultChecksum(try lookup.lookup(request))
+                checksum &+= resultsChecksum(try lookup.scan(request))
             }
 
             var samples: [Double] = []
             samples.reserveCapacity(measuredIterations)
             for _ in 0..<measuredIterations {
                 let startedAt = ContinuousClock.now
-                let result = try lookup.lookup(request)
+                let results = try lookup.scan(request)
                 samples.append(CLIOutput.milliseconds(since: startedAt))
-                checksum &+= resultChecksum(result)
+                checksum &+= resultsChecksum(results)
             }
             let statistics = BenchmarkStatistics(samples: samples)
+            let firstEntryCount = firstResults.reduce(0) { $0 + $1.entries.count }
 
             print("")
             print("[\(dictionary.manifest.title)] \(dictionary.manifest.dictionaryID.uuidString.lowercased())")
@@ -65,11 +70,11 @@ enum BenchmarkLookupCommand {
             let firstSuffix = dictionaryIndex == 0
                 ? " (includes process-wide rule initialization)"
                 : ""
-            print("  [bench] First lookup: \(CLIOutput.formatted(milliseconds: firstMilliseconds))\(firstSuffix)")
-            BenchmarkOutput.printWarmed(operation: "lookup", statistics: statistics)
+            print("  [bench] First scan: \(CLIOutput.formatted(milliseconds: firstMilliseconds))\(firstSuffix)")
+            BenchmarkOutput.printWarmed(operation: "scan", statistics: statistics)
             print(
-                "  [bench] First result: \(firstResult.entries.count) entries, "
-                    + "sourceRange=\(firstResult.sourceRange.start)..<\(firstResult.sourceRange.end)"
+                "  [bench] First result: \(firstResults.count) groups, "
+                    + "\(firstEntryCount) entries"
             )
         }
 
@@ -77,8 +82,12 @@ enum BenchmarkLookupCommand {
         print("[bench] Checksum: \(checksum)")
     }
 
-    private static func resultChecksum(_ result: LookupResult) -> Int {
-        result.entries.count &+ result.sourceRange.start &+ result.sourceRange.end
+    private static func resultsChecksum(_ results: [LookupResult]) -> Int {
+        results.reduce(0) { checksum, result in
+            checksum
+                &+ result.entries.count
+                &+ result.sourceRange.start
+                &+ result.sourceRange.end
+        }
     }
-
 }

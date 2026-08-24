@@ -1,4 +1,5 @@
 import Foundation
+import TsubameCore
 
 enum CLICommand {
     case importDictionary(
@@ -8,8 +9,16 @@ enum CLICommand {
         dryRun: Bool
     )
     case lookup(text: String, dataRoot: URL?, debug: Bool)
+    case scan(text: String, range: UTF8TextRange?, dataRoot: URL?, debug: Bool)
     case benchmarkLookup(
         text: String,
+        dataRoot: URL?,
+        warmupIterations: Int,
+        measuredIterations: Int
+    )
+    case benchmarkScan(
+        text: String,
+        range: UTF8TextRange?,
         dataRoot: URL?,
         warmupIterations: Int,
         measuredIterations: Int
@@ -25,11 +34,60 @@ enum CLICommand {
             return try parseImport(arguments: Array(arguments.dropFirst()))
         case "lookup":
             return try parseLookup(arguments: Array(arguments.dropFirst()))
+        case "scan":
+            return try parseScan(arguments: Array(arguments.dropFirst()))
         case "bench":
             return try parseBenchmark(arguments: Array(arguments.dropFirst()))
         default:
             throw CLIError.invalidUsage
         }
+    }
+
+    private static func parseScan(arguments: [String]) throws -> CLICommand {
+        var textComponents: [String] = []
+        var range: UTF8TextRange?
+        var dataRoot: URL?
+        var debug = false
+        var index = 0
+
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--debug":
+                guard !debug else { throw CLIError.invalidUsage }
+                debug = true
+                index += 1
+            case "--range":
+                guard range == nil,
+                      index + 1 < arguments.count,
+                      !arguments[index + 1].hasPrefix("--"),
+                      let parsedRange = parseUTF8Range(arguments[index + 1]) else {
+                    throw CLIError.invalidUsage
+                }
+                range = parsedRange
+                index += 2
+            case "--data-root":
+                guard dataRoot == nil,
+                      index + 1 < arguments.count,
+                      !arguments[index + 1].hasPrefix("--") else {
+                    throw CLIError.invalidUsage
+                }
+                dataRoot = URL(
+                    filePath: arguments[index + 1],
+                    directoryHint: .isDirectory
+                )
+                index += 2
+            default:
+                guard !arguments[index].hasPrefix("--") else {
+                    throw CLIError.invalidUsage
+                }
+                textComponents.append(arguments[index])
+                index += 1
+            }
+        }
+
+        let text = textComponents.joined(separator: " ")
+        guard !text.isEmpty else { throw CLIError.invalidUsage }
+        return .scan(text: text, range: range, dataRoot: dataRoot, debug: debug)
     }
 
     private static func parseImport(arguments: [String]) throws -> CLICommand {
@@ -118,7 +176,8 @@ enum CLICommand {
     }
 
     private static func parseBenchmark(arguments: [String]) throws -> CLICommand {
-        guard arguments.first == "lookup" else {
+        guard let benchmark = arguments.first,
+              benchmark == "lookup" || benchmark == "scan" else {
             throw CLIError.invalidUsage
         }
 
@@ -128,6 +187,7 @@ enum CLICommand {
         var measuredIterations = 1_000
         var hasWarmup = false
         var hasIterations = false
+        var range: UTF8TextRange?
         var index = 1
 
         while index < arguments.count {
@@ -163,6 +223,16 @@ enum CLICommand {
                 measuredIterations = value
                 hasIterations = true
                 index += 2
+            case "--range":
+                guard benchmark == "scan",
+                      range == nil,
+                      index + 1 < arguments.count,
+                      !arguments[index + 1].hasPrefix("--"),
+                      let parsedRange = parseUTF8Range(arguments[index + 1]) else {
+                    throw CLIError.invalidUsage
+                }
+                range = parsedRange
+                index += 2
             default:
                 guard !arguments[index].hasPrefix("--") else {
                     throw CLIError.invalidUsage
@@ -176,12 +246,31 @@ enum CLICommand {
         guard !text.isEmpty else {
             throw CLIError.invalidUsage
         }
-        return .benchmarkLookup(
+        if benchmark == "lookup" {
+            return .benchmarkLookup(
+                text: text,
+                dataRoot: dataRoot,
+                warmupIterations: warmupIterations,
+                measuredIterations: measuredIterations
+            )
+        }
+        return .benchmarkScan(
             text: text,
+            range: range,
             dataRoot: dataRoot,
             warmupIterations: warmupIterations,
             measuredIterations: measuredIterations
         )
+    }
+
+    private static func parseUTF8Range(_ argument: String) -> UTF8TextRange? {
+        let components = argument.split(separator: ":", omittingEmptySubsequences: false)
+        guard components.count == 2,
+              let start = Int(components[0]),
+              let end = Int(components[1]) else {
+            return nil
+        }
+        return UTF8TextRange(start: start, end: end)
     }
 
     func run() throws {
@@ -199,9 +288,24 @@ enum CLICommand {
                 dataRootOverride: dataRoot,
                 debug: debug
             )
+        case .scan(let text, let range, let dataRoot, let debug):
+            try ScanDictionaryCommand.run(
+                text: text,
+                range: range,
+                dataRootOverride: dataRoot,
+                debug: debug
+            )
         case let .benchmarkLookup(text, dataRoot, warmup, iterations):
             try BenchmarkLookupCommand.run(
                 text: text,
+                dataRootOverride: dataRoot,
+                warmupIterations: warmup,
+                measuredIterations: iterations
+            )
+        case let .benchmarkScan(text, range, dataRoot, warmup, iterations):
+            try BenchmarkScanCommand.run(
+                text: text,
+                range: range,
                 dataRootOverride: dataRoot,
                 warmupIterations: warmup,
                 measuredIterations: iterations
