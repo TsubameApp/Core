@@ -9,7 +9,10 @@ enum CLIHelp {
       import <dictionary.zip|directory> --dry-run [--debug]
           Run the complete import and validation without keeping the bundle.
 
-      By default, import uses the platform application-data directory.
+      lookup <text> [--data-root <path>] [--debug]
+          Look up an exact expression or reading in all imported dictionaries.
+
+      By default, commands use the platform application-data directory.
       --data-root overrides it for development and testing.
     """
 }

@@ -1,10 +1,10 @@
 import Foundation
 
-protocol DictionaryStore {
+public protocol DictionaryStore {
     func lookup(keys: [String], limit: Int) throws -> [DictionaryEntry]
 }
 
-enum DictionaryStoreError: LocalizedError, Sendable, Equatable {
+public enum DictionaryStoreError: LocalizedError, Sendable, Equatable {
     case databaseIsNotLocalFile(URL)
     case invalidLimit(Int)
     case resultLimitTooLarge(actual: Int, maximum: Int)
@@ -14,7 +14,7 @@ enum DictionaryStoreError: LocalizedError, Sendable, Equatable {
     case invalidStoredEntry
     case invalidStoredDefinition
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .databaseIsNotLocalFile(let url):
             return "Dictionary database is not a local file URL: \(url.absoluteString)"

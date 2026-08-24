@@ -1,12 +1,12 @@
 import Foundation
 
-final class SQLiteDictionaryStore: DictionaryStore {
+public final class SQLiteDictionaryStore: DictionaryStore {
     private static let maximumLookupKeyCount = 500
     private static let maximumResultCount = 500
 
     private let connection: SQLiteConnection
 
-    init(databaseURL: URL) throws {
+    public init(databaseURL: URL) throws {
         guard databaseURL.isFileURL else {
             throw DictionaryStoreError.databaseIsNotLocalFile(databaseURL)
         }
@@ -15,7 +15,7 @@ final class SQLiteDictionaryStore: DictionaryStore {
         try validateSchemaVersion()
     }
 
-    func lookup(keys: [String], limit: Int) throws -> [DictionaryEntry] {
+    public func lookup(keys: [String], limit: Int) throws -> [DictionaryEntry] {
         guard limit > 0 else {
             throw DictionaryStoreError.invalidLimit(limit)
         }
