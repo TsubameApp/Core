@@ -31,8 +31,21 @@ struct CLIStorageLocationsTests {
             fileManager: fileManager,
             environment: ["LOCALAPPDATA": #"C:\Users\runner\AppData\Local"#]
         )
-        #expect(locations.dataRoot.path.hasSuffix(#"AppData\Local\Tsubame"#))
-        #expect(locations.cacheRoot.path.hasSuffix(#"AppData\Local\Cache\Tsubame"#))
+        let localAppData = URL(
+            filePath: #"C:\Users\runner\AppData\Local"#,
+            directoryHint: .isDirectory
+        )
+        #expect(
+            locations.dataRoot.path
+                == localAppData.appending(path: "Tsubame", directoryHint: .isDirectory).path
+        )
+        #expect(
+            locations.cacheRoot.path
+                == localAppData
+                    .appending(path: "Cache", directoryHint: .isDirectory)
+                    .appending(path: "Tsubame", directoryHint: .isDirectory)
+                    .path
+        )
         #endif
     }
 
