@@ -1,7 +1,7 @@
 import Foundation
 
 enum DictionaryDatabaseSchema {
-    static let currentVersion = 1
+    static let currentVersion = 2
 }
 
 final class DictionaryDatabaseWriter {
@@ -14,23 +14,41 @@ final class DictionaryDatabaseWriter {
     func build<Result>(
         index: YomitanDictionaryIndex,
         indexData: Data,
+        resources: [DictionaryResourceRecord] = [],
+        progress: DictionaryImportProgressHandler? = nil,
         body: (DictionaryDatabaseImportSession) throws -> Result
     ) throws -> Result {
         try connection.execute("PRAGMA foreign_keys = ON")
+        let transactionTimer = DictionaryImportTimer()
+        progress?(.phaseStarted(.databaseTransaction))
         let result = try connection.inTransaction {
+            let schemaTimer = DictionaryImportTimer()
+            progress?(.phaseStarted(.databaseSchema))
             try createTables()
             try insertDictionary(index, indexData: indexData)
+            try insertResources(resources)
+            progress?(.phaseFinished(.databaseSchema, elapsedSeconds: schemaTimer.elapsedSeconds))
 
             let session = try DictionaryDatabaseImportSession(connection: connection)
             let result = try body(session)
             try session.finish()
 
+            let indicesTimer = DictionaryImportTimer()
+            progress?(.phaseStarted(.databaseIndices))
             try createIndices()
             try connection.execute("PRAGMA user_version = \(DictionaryDatabaseSchema.currentVersion)")
+            progress?(.phaseFinished(.databaseIndices, elapsedSeconds: indicesTimer.elapsedSeconds))
             return result
         }
+        progress?(.phaseFinished(
+            .databaseTransaction,
+            elapsedSeconds: transactionTimer.elapsedSeconds
+        ))
 
+        let integrityTimer = DictionaryImportTimer()
+        progress?(.phaseStarted(.databaseIntegrity))
         try validateIntegrity()
+        progress?(.phaseFinished(.databaseIntegrity, elapsedSeconds: integrityTimer.elapsedSeconds))
         try connection.close()
         return result
     }
@@ -143,6 +161,16 @@ final class DictionaryDatabaseWriter {
             )
             """
         )
+        try connection.execute(
+            """
+            CREATE TABLE resource (
+                logical_path TEXT PRIMARY KEY,
+                stored_relative_path TEXT NOT NULL UNIQUE,
+                media_type TEXT NOT NULL,
+                byte_size INTEGER NOT NULL CHECK (byte_size >= 0)
+            ) WITHOUT ROWID
+            """
+        )
     }
 
     private func insertDictionary(_ index: YomitanDictionaryIndex, indexData: Data) throws {
@@ -178,6 +206,29 @@ final class DictionaryDatabaseWriter {
         try connection.execute("CREATE INDEX kanji_metadata_character_mode ON kanji_metadata (character, mode)")
         try connection.execute("CREATE INDEX tag_name ON tag (name)")
         try connection.execute("ANALYZE")
+    }
+
+    private func insertResources(_ resources: [DictionaryResourceRecord]) throws {
+        let statement = try connection.prepare(
+            """
+            INSERT INTO resource (
+                logical_path, stored_relative_path, media_type, byte_size
+            ) VALUES (?, ?, ?, ?)
+            """
+        )
+        defer { statement.finalizeIgnoringErrors() }
+
+        for resource in resources {
+            try statement.bind(resource.logicalPath.rawValue, at: 1)
+            try statement.bind(resource.storedRelativePath, at: 2)
+            try statement.bind(resource.mediaType, at: 3)
+            try statement.bind(resource.byteSize, at: 4)
+            guard try statement.step() == .done else {
+                preconditionFailure("An INSERT statement returned a row.")
+            }
+            try statement.reset()
+        }
+        try statement.finalize()
     }
 
     private func validateIntegrity() throws {

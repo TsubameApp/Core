@@ -38,7 +38,8 @@ struct YomitanSQLiteDictionaryImporterTests {
             #expect(try integer("SELECT COUNT(*) FROM kanji_entry", connection: connection) == 1)
             #expect(try integer("SELECT COUNT(*) FROM kanji_metadata", connection: connection) == 1)
             #expect(try integer("SELECT COUNT(*) FROM tag", connection: connection) == 1)
-            #expect(try integer("PRAGMA user_version", connection: connection) == 1)
+            #expect(try integer("PRAGMA user_version", connection: connection) == 2)
+            #expect(try integer("SELECT COUNT(*) FROM resource", connection: connection) == 0)
 
             let lookup = try connection.prepare(
                 """

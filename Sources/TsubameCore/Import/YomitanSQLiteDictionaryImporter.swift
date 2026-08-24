@@ -29,7 +29,27 @@ public struct YomitanSQLiteDictionaryImporter: Sendable {
 
     public func `import`(
         from source: DictionaryImportSource,
-        to databaseURL: URL
+        to databaseURL: URL,
+        progress: DictionaryImportProgressHandler? = nil
+    ) throws -> YomitanSQLiteImportResult {
+        let totalTimer = DictionaryImportTimer()
+        let result = try `import`(
+            from: source,
+            to: databaseURL,
+            resources: [],
+            progress: progress,
+            reportSourcePreparation: true
+        )
+        progress?(.completed(elapsedSeconds: totalTimer.elapsedSeconds))
+        return result
+    }
+
+    func `import`(
+        from source: DictionaryImportSource,
+        to databaseURL: URL,
+        resources: [DictionaryResourceRecord],
+        progress: DictionaryImportProgressHandler? = nil,
+        reportSourcePreparation: Bool = true
     ) throws -> YomitanSQLiteImportResult {
         let fileManager = FileManager.default
         guard databaseURL.isFileURL else {
@@ -44,6 +64,11 @@ public struct YomitanSQLiteDictionaryImporter: Sendable {
             atPath: source.url.path,
             isDirectory: &isDirectory
         )
+
+        let sourceTimer = DictionaryImportTimer()
+        if reportSourcePreparation {
+            progress?(.phaseStarted(.sourcePreparation))
+        }
 
         let dictionaryDirectory: URL
         var extractedDirectory: URL?
@@ -66,6 +91,12 @@ public struct YomitanSQLiteDictionaryImporter: Sendable {
             )
             extractedDirectory = extractionURL
         }
+        if reportSourcePreparation {
+            progress?(.phaseFinished(
+                .sourcePreparation,
+                elapsedSeconds: sourceTimer.elapsedSeconds
+            ))
+        }
         defer {
             if let extractedDirectory {
                 try? fileManager.removeItem(at: extractedDirectory)
@@ -78,7 +109,12 @@ public struct YomitanSQLiteDictionaryImporter: Sendable {
         )
 
         do {
-            return try buildDatabase(from: dictionaryDirectory, at: databaseURL)
+            return try buildDatabase(
+                from: dictionaryDirectory,
+                at: databaseURL,
+                resources: resources,
+                progress: progress
+            )
         } catch {
             removeDatabaseFiles(at: databaseURL, fileManager: fileManager)
             throw error
@@ -98,7 +134,9 @@ private extension YomitanSQLiteDictionaryImporter {
 
     func buildDatabase(
         from directory: URL,
-        at databaseURL: URL
+        at databaseURL: URL,
+        resources: [DictionaryResourceRecord],
+        progress: DictionaryImportProgressHandler?
     ) throws -> YomitanSQLiteImportResult {
         let files = try importFiles(in: directory)
         let indexData = try Data(contentsOf: files.index)
@@ -119,52 +157,143 @@ private extension YomitanSQLiteDictionaryImporter {
         var kanjiSummaries: [YomitanBankSummary] = []
         var kanjiMetadataSummaries: [YomitanBankSummary] = []
         var tagSummaries: [YomitanBankSummary] = []
+        let totalBanks = files.termBanks.count
+            + files.termMetadataBanks.count
+            + files.kanjiBanks.count
+            + files.kanjiMetadataBanks.count
+            + files.tagBanks.count
+        var currentBank = 0
 
         let writer = try DictionaryDatabaseWriter(url: databaseURL)
-        let counts = try writer.build(index: index, indexData: indexData) { session in
+        let counts = try writer.build(
+            index: index,
+            indexData: indexData,
+            resources: resources,
+            progress: progress
+        ) { session in
             for (bankOrder, url) in files.termBanks.enumerated() {
+                currentBank += 1
+                let timer = DictionaryImportTimer()
+                progress?(.bankStarted(
+                    kind: .term,
+                    fileName: url.lastPathComponent,
+                    index: currentBank,
+                    total: totalBanks
+                ))
                 let entries = try decoder.decode(
                     [YomitanTermEntry].self,
                     from: Data(contentsOf: url)
                 )
                 try session.insertTerms(entries, bankOrder: bankOrder)
                 termSummaries.append(summary(for: url, count: entries.count))
+                progress?(.bankFinished(
+                    kind: .term,
+                    fileName: url.lastPathComponent,
+                    index: currentBank,
+                    total: totalBanks,
+                    entryCount: entries.count,
+                    elapsedSeconds: timer.elapsedSeconds
+                ))
             }
 
             for (bankOrder, url) in files.termMetadataBanks.enumerated() {
+                currentBank += 1
+                let timer = DictionaryImportTimer()
+                progress?(.bankStarted(
+                    kind: .termMetadata,
+                    fileName: url.lastPathComponent,
+                    index: currentBank,
+                    total: totalBanks
+                ))
                 let entries = try decoder.decode(
                     [YomitanTermMetadata].self,
                     from: Data(contentsOf: url)
                 )
                 try session.insertTermMetadata(entries, bankOrder: bankOrder)
                 termMetadataSummaries.append(summary(for: url, count: entries.count))
+                progress?(.bankFinished(
+                    kind: .termMetadata,
+                    fileName: url.lastPathComponent,
+                    index: currentBank,
+                    total: totalBanks,
+                    entryCount: entries.count,
+                    elapsedSeconds: timer.elapsedSeconds
+                ))
             }
 
             for (bankOrder, url) in files.kanjiBanks.enumerated() {
+                currentBank += 1
+                let timer = DictionaryImportTimer()
+                progress?(.bankStarted(
+                    kind: .kanji,
+                    fileName: url.lastPathComponent,
+                    index: currentBank,
+                    total: totalBanks
+                ))
                 let entries = try decoder.decode(
                     [YomitanKanjiEntry].self,
                     from: Data(contentsOf: url)
                 )
                 try session.insertKanji(entries, bankOrder: bankOrder)
                 kanjiSummaries.append(summary(for: url, count: entries.count))
+                progress?(.bankFinished(
+                    kind: .kanji,
+                    fileName: url.lastPathComponent,
+                    index: currentBank,
+                    total: totalBanks,
+                    entryCount: entries.count,
+                    elapsedSeconds: timer.elapsedSeconds
+                ))
             }
 
             for (bankOrder, url) in files.kanjiMetadataBanks.enumerated() {
+                currentBank += 1
+                let timer = DictionaryImportTimer()
+                progress?(.bankStarted(
+                    kind: .kanjiMetadata,
+                    fileName: url.lastPathComponent,
+                    index: currentBank,
+                    total: totalBanks
+                ))
                 let entries = try decoder.decode(
                     [YomitanKanjiMetadata].self,
                     from: Data(contentsOf: url)
                 )
                 try session.insertKanjiMetadata(entries, bankOrder: bankOrder)
                 kanjiMetadataSummaries.append(summary(for: url, count: entries.count))
+                progress?(.bankFinished(
+                    kind: .kanjiMetadata,
+                    fileName: url.lastPathComponent,
+                    index: currentBank,
+                    total: totalBanks,
+                    entryCount: entries.count,
+                    elapsedSeconds: timer.elapsedSeconds
+                ))
             }
 
             for (bankOrder, url) in files.tagBanks.enumerated() {
+                currentBank += 1
+                let timer = DictionaryImportTimer()
+                progress?(.bankStarted(
+                    kind: .tag,
+                    fileName: url.lastPathComponent,
+                    index: currentBank,
+                    total: totalBanks
+                ))
                 let entries = try decoder.decode(
                     [YomitanTag].self,
                     from: Data(contentsOf: url)
                 )
                 try session.insertTags(entries, bankOrder: bankOrder)
                 tagSummaries.append(summary(for: url, count: entries.count))
+                progress?(.bankFinished(
+                    kind: .tag,
+                    fileName: url.lastPathComponent,
+                    index: currentBank,
+                    total: totalBanks,
+                    entryCount: entries.count,
+                    elapsedSeconds: timer.elapsedSeconds
+                ))
             }
 
             return (session.definitionCount, session.lookupKeyCount)

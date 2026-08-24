@@ -55,7 +55,16 @@ let package = Package(
                 )
             ]
         ),
-        .executableTarget(name: "TsubameCLI", dependencies: ["TsubameCore"]),
-        .testTarget(name: "TsubameCoreTests", dependencies: ["TsubameCore"])
+        .target(name: "TsubameCLIPlatform", dependencies: ["TsubameCore"]),
+        .executableTarget(
+            name: "TsubameCLI",
+            dependencies: ["TsubameCore", "TsubameCLIPlatform"]
+        ),
+        .testTarget(name: "TsubameCoreTests", dependencies: ["TsubameCore"]),
+        .testTarget(
+            name: "TsubameCLIPlatformTests",
+            dependencies: ["TsubameCLIPlatform"],
+            resources: [.copy("Resources")]
+        )
     ]
 )
