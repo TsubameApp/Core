@@ -2,7 +2,7 @@ import Foundation
 
 /// Performs dictionary lookup from a position in arbitrary source text.
 public struct DictionaryLookup {
-    private let store: any DictionaryStore
+    let store: any DictionaryStore
     private let normalizer: TextNormalizer
     private let candidateGenerator: PrefixCandidateGenerator
 

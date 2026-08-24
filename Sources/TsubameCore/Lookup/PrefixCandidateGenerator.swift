@@ -4,6 +4,9 @@ enum LookupCandidateLimits {
     static let maximumPrefixCharacterCount = 32
     static let maximumPrefixUTF8Length = 256
     static let maximumLookupKeyCount = 500
+    static let maximumScanCandidateCount = 16_384
+    static let maximumScanUniqueLookupKeyCount = 8_000
+    static let maximumScanLookupBatchCount = 16
 }
 
 struct LookupPrefixCandidate: Sendable, Equatable {
@@ -14,9 +17,16 @@ struct LookupPrefixCandidate: Sendable, Equatable {
 struct PrefixCandidateGenerator: Sendable {
     func candidates(
         in text: String,
-        fromUTF8Offset startOffset: Int
+        fromUTF8Offset startOffset: Int,
+        throughUTF8Offset endOffset: Int? = nil
     ) -> [LookupPrefixCandidate] {
-        guard startOffset >= 0, startOffset < text.utf8.count else { return [] }
+        let textUTF8Length = text.utf8.count
+        let endOffset = endOffset ?? textUTF8Length
+        guard startOffset >= 0,
+              startOffset < endOffset,
+              endOffset <= textUTF8Length else {
+            return []
+        }
 
         let startUTF8Index = text.utf8.index(
             text.utf8.startIndex,
@@ -34,8 +44,10 @@ struct PrefixCandidateGenerator: Sendable {
             endIndex = text.index(after: endIndex)
 
             let key = String(text[startIndex..<endIndex])
-            let endOffset = startOffset + key.utf8.count
-            guard endOffset - startOffset <= LookupCandidateLimits.maximumPrefixUTF8Length else {
+            let candidateEndOffset = startOffset + key.utf8.count
+            guard candidateEndOffset <= endOffset,
+                  candidateEndOffset - startOffset
+                    <= LookupCandidateLimits.maximumPrefixUTF8Length else {
                 break
             }
             candidates.append(
@@ -43,7 +55,7 @@ struct PrefixCandidateGenerator: Sendable {
                     key: key,
                     normalizedRange: UTF8TextRange(
                         start: startOffset,
-                        end: endOffset
+                        end: candidateEndOffset
                     )
                 )
             )

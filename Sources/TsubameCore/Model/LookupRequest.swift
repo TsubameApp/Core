@@ -20,7 +20,7 @@ public struct UTF8TextRange: Sendable, Equatable, Hashable {
 
 public enum LookupRequestLimits {
     public static let maximumTextUTF8Length = 65_536
-    public static let maximumScanRangeUTF8Length = 16_384
+    public static let maximumScanRangeUTF8Length = 1_024
     public static let maximumResultGroups = 256
     public static let maximumEntriesPerGroup = 500
 }
