@@ -38,6 +38,24 @@ struct PositionedDictionaryLookupTests {
         }
     }
 
+    @Test func preservesRawExactKeyAlongsideNormalizedKey() throws {
+        let rawEntry = makeEntry(id: 1, expression: "㍿")
+        let store = RecordingDictionaryStore(entries: [rawEntry])
+        let lookup = DictionaryLookup(store: store)
+
+        let result = try lookup.lookup(
+            PositionedLookupRequest(text: "㍿", position: 0)
+        )
+
+        #expect(
+            store.receivedLookupKeys.contains {
+                $0.key.utf8.elementsEqual("㍿".utf8) && $0.requiredRules == nil
+            }
+        )
+        #expect(result.sourceRange == UTF8TextRange(start: 0, end: 3))
+        #expect(result.entries.map(\.expression) == ["㍿"])
+    }
+
     @Test func batchesCandidatesAndChoosesLongestMatchingPrefix() throws {
         let longerEntry = makeEntry(id: 1, expression: "食べ")
         let shorterEntry = makeEntry(id: 2, expression: "食")

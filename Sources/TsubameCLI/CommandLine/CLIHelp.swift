@@ -10,7 +10,8 @@ enum CLIHelp {
           Run the complete import and validation without keeping the bundle.
 
       lookup <text> [--data-root <path>] [--debug]
-          Look up an exact expression or reading in all imported dictionaries.
+          Look up text from its start in all imported dictionaries.
+          Includes Unicode normalization and Japanese deinflection.
 
       By default, commands use the platform application-data directory.
       --data-root overrides it for development and testing.

@@ -30,7 +30,8 @@ public struct DictionaryLookup {
         let rules = try JapaneseDeinflectionRules.load()
         let candidateBatch = try LookupCandidateBuilder(rules: rules).build(
             prefixes: candidates,
-            normalizedText: normalized
+            normalizedText: normalized,
+            originalText: request.text
         )
         let entries = try store.lookup(
             keys: candidateBatch.lookupKeys,

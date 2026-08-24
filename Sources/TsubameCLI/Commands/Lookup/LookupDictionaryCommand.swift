@@ -19,6 +19,11 @@ enum LookupDictionaryCommand {
         )
         let layout = DictionaryLibraryLayout(locations: locations)
         let dictionaries = try installedDictionaries(layout: layout)
+        let request = try PositionedLookupRequest(
+            text: text,
+            position: 0,
+            resultLimit: resultLimitPerDictionary
+        )
 
         print("[lookup] Text: \(text)")
         print("[lookup] Data root: \(locations.dataRoot.path)")
@@ -39,16 +44,15 @@ enum LookupDictionaryCommand {
         for dictionary in dictionaries {
             let dictionaryStartedAt = ContinuousClock.now
             let store = try SQLiteDictionaryStore(databaseURL: dictionary.databaseURL)
-            let entries = try store.lookup(
-                keys: [text],
-                limit: resultLimitPerDictionary
-            )
+            let result = try DictionaryLookup(store: store).lookup(request)
+            let entries = result.entries
             if debug {
                 print(
                     "[debug] dictionary "
                         + "\(dictionary.manifest.dictionaryID.uuidString.lowercased()): "
                         + "\(milliseconds(since: dictionaryStartedAt)), "
-                        + "\(entries.count) entries"
+                        + "\(entries.count) entries, "
+                        + "sourceRange=\(result.sourceRange.start)..<\(result.sourceRange.end)"
                 )
             }
             guard !entries.isEmpty else { continue }
@@ -57,6 +61,7 @@ enum LookupDictionaryCommand {
             matchCount += entries.count
             print("")
             print("[\(dictionary.manifest.title)] \(dictionary.manifest.dictionaryID.uuidString.lowercased())")
+            print("  [lookup] Surface: \(sourceText(in: text, range: result.sourceRange))")
             for entry in entries {
                 printEntry(entry, debug: debug)
             }
@@ -64,7 +69,7 @@ enum LookupDictionaryCommand {
 
         print("")
         if matchCount == 0 {
-            print("[lookup] No exact matches.")
+            print("[lookup] No matches.")
         } else {
             print(
                 "[lookup] Matches: \(matchCount) "
@@ -167,6 +172,13 @@ enum LookupDictionaryCommand {
                 ?? String(decoding: definition.contentJSON, as: UTF8.self)
             print("    - \(content)")
         }
+    }
+
+    private static func sourceText(in text: String, range: UTF8TextRange) -> String {
+        let utf8 = text.utf8
+        let start = utf8.index(utf8.startIndex, offsetBy: range.start)
+        let end = utf8.index(utf8.startIndex, offsetBy: range.end)
+        return String(decoding: utf8[start..<end], as: UTF8.self)
     }
 
     private static func printElapsedTimeIfNeeded(

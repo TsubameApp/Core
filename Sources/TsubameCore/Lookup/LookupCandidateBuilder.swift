@@ -45,7 +45,8 @@ struct LookupCandidateBuilder: Sendable {
 
     func build(
         prefixes: [LookupPrefixCandidate],
-        normalizedText: NormalizedText
+        normalizedText: NormalizedText,
+        originalText: String
     ) throws -> PositionedLookupCandidateBatch {
         var candidates: [PositionedLookupCandidate] = []
         var seenCandidates: Set<CandidateIdentity> = []
@@ -55,6 +56,16 @@ struct LookupCandidateBuilder: Sendable {
         for prefix in prefixes {
             let sourceRange = try normalizedText.originalUTF8Range(
                 forNormalizedUTF8Range: prefix.normalizedRange
+            )
+            appendCandidate(
+                key: sourceText(in: originalText, range: sourceRange),
+                sourceRange: sourceRange,
+                kind: .exact,
+                requiredRules: nil,
+                path: .empty,
+                stableOrder: &stableOrder,
+                candidates: &candidates,
+                seen: &seenCandidates
             )
             appendCandidate(
                 key: prefix.key,
@@ -177,6 +188,13 @@ struct LookupCandidateBuilder: Sendable {
             bytes: candidate.keyBytes,
             requiredRules: candidate.requiredRules?.rawValue
         )
+    }
+
+    private func sourceText(in text: String, range: UTF8TextRange) -> String {
+        let utf8 = text.utf8
+        let start = utf8.index(utf8.startIndex, offsetBy: range.start)
+        let end = utf8.index(utf8.startIndex, offsetBy: range.end)
+        return String(decoding: utf8[start..<end], as: UTF8.self)
     }
 
     private func isPreferred(
