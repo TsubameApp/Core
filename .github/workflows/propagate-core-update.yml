@@ -1,4 +1,4 @@
-name: Notify umbrella
+name: Propagate Core update
 
 on:
   push:
@@ -9,9 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  notify:
-    uses: TsubameApp/Tsubame/.github/workflows/notify-submodule-update.yml@main
-    with:
-      component: Core
+  notify-macos:
+    uses: TsubameApp/Tsubame/.github/workflows/notify-core-update.yml@main
     secrets:
       automation_token: ${{ secrets.TSUBAME_AUTOMATION_TOKEN }}
