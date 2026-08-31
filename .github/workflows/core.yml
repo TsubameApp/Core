@@ -1,0 +1,318 @@
+name: Core
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Report toolchain
+        run: swift --version
+
+      - name: Run Core tests
+        run: swift test
+
+      - name: Smoke-test C ABI
+        shell: bash
+        run: Tests/CABISmoke/run-smoke.sh .
+
+      - name: Smoke-test dictionary CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke_root="$RUNNER_TEMP/tsubame-cli-smoke"
+          cli_temp="$RUNNER_TEMP/tsubame-cli-temporary"
+          mkdir -p "$cli_temp"
+          export TMPDIR="$cli_temp/"
+
+          dry_output="$(swift run TsubameCLI import Tests/TsubameCLIPlatformTests/Resources/CLIYomitanDictionary --dry-run --debug)"
+          echo "$dry_output"
+          grep -Fq "[debug] bank 1/5" <<< "$dry_output"
+          grep -Fq "[debug] total import:" <<< "$dry_output"
+          test -z "$(find "$cli_temp" -maxdepth 1 -type d -name 'TsubameCLI-DryRun-*' -print -quit)"
+
+          swift run TsubameCLI import Tests/TsubameCLIPlatformTests/Resources/CLIYomitanDictionary --data-root "$smoke_root" --debug
+          test "$(find "$smoke_root/Dictionaries" -type f -name dictionary.sqlite | wc -l | tr -d ' ')" = "1"
+          test "$(find "$smoke_root/Dictionaries" -type f -name manifest.json | wc -l | tr -d ' ')" = "1"
+          test "$(find "$smoke_root/Dictionaries" -type f -path '*/resources/images/bird.svg' | wc -l | tr -d ' ')" = "1"
+
+          exact_lookup_output="$(swift run TsubameCLI lookup ガクセイ --data-root "$smoke_root" --debug)"
+          echo "$exact_lookup_output"
+          grep -Fq "ガクセイ【がくせい】" <<< "$exact_lookup_output"
+          grep -Fq "[lookup] Matches: 1 across 1 dictionaries." <<< "$exact_lookup_output"
+          grep -Fq "[debug] total:" <<< "$exact_lookup_output"
+
+          normalized_lookup_output="$(swift run TsubameCLI lookup ｶﾞｸｾｲ --data-root "$smoke_root" --debug)"
+          echo "$normalized_lookup_output"
+          grep -Fq "ガクセイ【がくせい】" <<< "$normalized_lookup_output"
+          grep -Fq "[lookup] Matches: 1 across 1 dictionaries." <<< "$normalized_lookup_output"
+          grep -Fq "[debug] total:" <<< "$normalized_lookup_output"
+
+          deinflected_lookup_output="$(swift run TsubameCLI lookup 食べました --data-root "$smoke_root" --debug)"
+          echo "$deinflected_lookup_output"
+          grep -Fq "[lookup] Surface: 食べました" <<< "$deinflected_lookup_output"
+          grep -Fq "食べる【たべる】" <<< "$deinflected_lookup_output"
+          grep -Fq "[lookup] Matches: 1 across 1 dictionaries." <<< "$deinflected_lookup_output"
+          grep -Fq "sourceRange=0..<15" <<< "$deinflected_lookup_output"
+
+          scan_output="$(swift run TsubameCLI scan 前食べましたｶﾞｸｾｲ後 --range 3:33 --data-root "$smoke_root" --debug)"
+          echo "$scan_output"
+          grep -Fq "[scan] Selection: 食べましたｶﾞｸｾｲ" <<< "$scan_output"
+          grep -Fq "[scan] Surface: 食べました" <<< "$scan_output"
+          grep -Fq "[scan] Source range: 3..<18" <<< "$scan_output"
+          grep -Fq "食べる【たべる】" <<< "$scan_output"
+          grep -Fq "[scan] Source range: 3..<9" <<< "$scan_output"
+          grep -Fq "[scan] Surface: ｶﾞｸｾｲ" <<< "$scan_output"
+          grep -Fq "[scan] Source range: 18..<33" <<< "$scan_output"
+          grep -Fq "ガクセイ【がくせい】" <<< "$scan_output"
+          grep -Fq "[scan] Groups: 3, matches: 3 across 1 dictionaries." <<< "$scan_output"
+          grep -Fq "[debug] total:" <<< "$scan_output"
+
+          benchmark_output="$(swift run TsubameCLI bench lookup 食べました --data-root "$smoke_root" --warmup 1 --iterations 3)"
+          echo "$benchmark_output"
+          grep -Fq "[bench] Store open:" <<< "$benchmark_output"
+          grep -Fq "[bench] First lookup:" <<< "$benchmark_output"
+          grep -Fq "[bench] Warmed lookup: p50=" <<< "$benchmark_output"
+          grep -Fq "[bench] Checksum:" <<< "$benchmark_output"
+
+          scan_benchmark_output="$(swift run TsubameCLI bench scan 前食べましたｶﾞｸｾｲ後 --range 3:33 --data-root "$smoke_root" --warmup 1 --iterations 3)"
+          echo "$scan_benchmark_output"
+          grep -Fq "[bench] Store open:" <<< "$scan_benchmark_output"
+          grep -Fq "[bench] First scan:" <<< "$scan_benchmark_output"
+          grep -Fq "[bench] Warmed scan: p50=" <<< "$scan_benchmark_output"
+          grep -Fq "[bench] First result: 3 groups, 3 entries" <<< "$scan_benchmark_output"
+          grep -Fq "[bench] Checksum:" <<< "$scan_benchmark_output"
+
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    container:
+      image: swift:6.3-noble
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install system SQLite
+        run: apt-get update && apt-get install --yes libsqlite3-dev
+
+      - name: Report toolchain
+        run: swift --version
+
+      - name: Run Core tests
+        run: swift test
+
+      - name: Smoke-test C ABI
+        shell: bash
+        run: Tests/CABISmoke/run-smoke.sh .
+
+      - name: Smoke-test dictionary CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke_root="$RUNNER_TEMP/tsubame-cli-smoke"
+          cli_temp="$RUNNER_TEMP/tsubame-cli-temporary"
+          mkdir -p "$cli_temp"
+          export TMPDIR="$cli_temp/"
+
+          dry_output="$(swift run TsubameCLI import Tests/TsubameCLIPlatformTests/Resources/CLIYomitanDictionary --dry-run --debug)"
+          echo "$dry_output"
+          grep -Fq "[debug] bank 1/5" <<< "$dry_output"
+          grep -Fq "[debug] total import:" <<< "$dry_output"
+          test -z "$(find "$cli_temp" -maxdepth 1 -type d -name 'TsubameCLI-DryRun-*' -print -quit)"
+
+          swift run TsubameCLI import Tests/TsubameCLIPlatformTests/Resources/CLIYomitanDictionary --data-root "$smoke_root" --debug
+          test "$(find "$smoke_root/Dictionaries" -type f -name dictionary.sqlite | wc -l | tr -d ' ')" = "1"
+          test "$(find "$smoke_root/Dictionaries" -type f -name manifest.json | wc -l | tr -d ' ')" = "1"
+          test "$(find "$smoke_root/Dictionaries" -type f -path '*/resources/images/bird.svg' | wc -l | tr -d ' ')" = "1"
+
+          exact_lookup_output="$(swift run TsubameCLI lookup ガクセイ --data-root "$smoke_root" --debug)"
+          echo "$exact_lookup_output"
+          grep -Fq "ガクセイ【がくせい】" <<< "$exact_lookup_output"
+          grep -Fq "[lookup] Matches: 1 across 1 dictionaries." <<< "$exact_lookup_output"
+          grep -Fq "[debug] total:" <<< "$exact_lookup_output"
+
+          normalized_lookup_output="$(swift run TsubameCLI lookup ｶﾞｸｾｲ --data-root "$smoke_root" --debug)"
+          echo "$normalized_lookup_output"
+          grep -Fq "ガクセイ【がくせい】" <<< "$normalized_lookup_output"
+          grep -Fq "[lookup] Matches: 1 across 1 dictionaries." <<< "$normalized_lookup_output"
+          grep -Fq "[debug] total:" <<< "$normalized_lookup_output"
+
+          deinflected_lookup_output="$(swift run TsubameCLI lookup 食べました --data-root "$smoke_root" --debug)"
+          echo "$deinflected_lookup_output"
+          grep -Fq "[lookup] Surface: 食べました" <<< "$deinflected_lookup_output"
+          grep -Fq "食べる【たべる】" <<< "$deinflected_lookup_output"
+          grep -Fq "[lookup] Matches: 1 across 1 dictionaries." <<< "$deinflected_lookup_output"
+          grep -Fq "sourceRange=0..<15" <<< "$deinflected_lookup_output"
+
+          scan_output="$(swift run TsubameCLI scan 前食べましたｶﾞｸｾｲ後 --range 3:33 --data-root "$smoke_root" --debug)"
+          echo "$scan_output"
+          grep -Fq "[scan] Selection: 食べましたｶﾞｸｾｲ" <<< "$scan_output"
+          grep -Fq "[scan] Surface: 食べました" <<< "$scan_output"
+          grep -Fq "[scan] Source range: 3..<18" <<< "$scan_output"
+          grep -Fq "食べる【たべる】" <<< "$scan_output"
+          grep -Fq "[scan] Source range: 3..<9" <<< "$scan_output"
+          grep -Fq "[scan] Surface: ｶﾞｸｾｲ" <<< "$scan_output"
+          grep -Fq "[scan] Source range: 18..<33" <<< "$scan_output"
+          grep -Fq "ガクセイ【がくせい】" <<< "$scan_output"
+          grep -Fq "[scan] Groups: 3, matches: 3 across 1 dictionaries." <<< "$scan_output"
+          grep -Fq "[debug] total:" <<< "$scan_output"
+
+          benchmark_output="$(swift run TsubameCLI bench lookup 食べました --data-root "$smoke_root" --warmup 1 --iterations 3)"
+          echo "$benchmark_output"
+          grep -Fq "[bench] Store open:" <<< "$benchmark_output"
+          grep -Fq "[bench] First lookup:" <<< "$benchmark_output"
+          grep -Fq "[bench] Warmed lookup: p50=" <<< "$benchmark_output"
+          grep -Fq "[bench] Checksum:" <<< "$benchmark_output"
+
+          scan_benchmark_output="$(swift run TsubameCLI bench scan 前食べましたｶﾞｸｾｲ後 --range 3:33 --data-root "$smoke_root" --warmup 1 --iterations 3)"
+          echo "$scan_benchmark_output"
+          grep -Fq "[bench] Store open:" <<< "$scan_benchmark_output"
+          grep -Fq "[bench] First scan:" <<< "$scan_benchmark_output"
+          grep -Fq "[bench] Warmed scan: p50=" <<< "$scan_benchmark_output"
+          grep -Fq "[bench] First result: 3 groups, 3 entries" <<< "$scan_benchmark_output"
+          grep -Fq "[bench] Checksum:" <<< "$scan_benchmark_output"
+
+  windows:
+    name: Windows
+    runs-on: windows-2025
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Swift 6.3.3
+        shell: pwsh
+        run: |
+          winget install --id Swift.Toolchain --exact --version 6.3.3 --source winget --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $refreshedEnvironment = @{}
+          foreach ($level in "Machine", "User") {
+            [Environment]::GetEnvironmentVariables($level).GetEnumerator() | ForEach-Object {
+              if ($_.Name -eq "Path") {
+                $_.Value = ("$env:Path;$($_.Value)" -split ";" | Select-Object -Unique) -join ";"
+              }
+              Set-Item -Path "Env:$($_.Name)" -Value $_.Value
+              $refreshedEnvironment[$_.Name] = $_.Value
+            }
+          }
+
+          $env:Path -split ";" | Where-Object { $_ } | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $refreshedEnvironment.GetEnumerator() | Where-Object { $_.Name -ne "Path" } | ForEach-Object {
+            "$($_.Name)=$($_.Value)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+
+          if (-not $env:SDKROOT -or -not (Test-Path $env:SDKROOT)) {
+            throw "Swift installer did not configure a valid SDKROOT."
+          }
+
+          swift --version
+          swiftc -print-target-info
+
+      - name: Report toolchain
+        run: swift --version
+
+      - name: Run Core tests
+        run: swift test
+
+      - name: Smoke-test C ABI
+        shell: pwsh
+        run: Tests/CABISmoke/run-smoke.ps1 -CorePath .
+
+      - name: Smoke-test dictionary CLI
+        shell: pwsh
+        run: |
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "tsubame-cli-smoke"
+          $cliTemp = Join-Path $env:RUNNER_TEMP "tsubame-cli-temporary"
+          New-Item -ItemType Directory -Path $cliTemp -Force | Out-Null
+          $env:TEMP = $cliTemp
+          $env:TMP = $cliTemp
+
+          $dryOutput = & swift run TsubameCLI import Tests/TsubameCLIPlatformTests/Resources/CLIYomitanDictionary --dry-run --debug 2>&1
+          $dryExitCode = $LASTEXITCODE
+          $dryOutput | ForEach-Object { Write-Host $_ }
+          if ($dryExitCode -ne 0) { exit $dryExitCode }
+          if (-not ($dryOutput -match "\[debug\] bank 1/5")) { throw "Missing bank progress output." }
+          if (-not ($dryOutput -match "\[debug\] total import:")) { throw "Missing total timing output." }
+          if (Get-ChildItem -Path $cliTemp -Directory -Filter "TsubameCLI-DryRun-*" -ErrorAction SilentlyContinue) {
+            throw "Dry run left a temporary bundle behind."
+          }
+
+          & swift run TsubameCLI import Tests/TsubameCLIPlatformTests/Resources/CLIYomitanDictionary --data-root $smokeRoot --debug
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (@(Get-ChildItem -Path "$smokeRoot/Dictionaries" -Recurse -File -Filter "dictionary.sqlite").Count -ne 1) {
+            throw "Expected exactly one dictionary database."
+          }
+          if (@(Get-ChildItem -Path "$smokeRoot/Dictionaries" -Recurse -File -Filter "manifest.json").Count -ne 1) {
+            throw "Expected exactly one dictionary manifest."
+          }
+          if (@(Get-ChildItem -Path "$smokeRoot/Dictionaries" -Recurse -File -Filter "bird.svg").Count -ne 1) {
+            throw "Expected copied SVG resource."
+          }
+
+          $exactLookupOutput = & swift run TsubameCLI lookup "ガクセイ" --data-root $smokeRoot --debug 2>&1
+          $exactLookupExitCode = $LASTEXITCODE
+          $exactLookupOutput | ForEach-Object { Write-Host $_ }
+          if ($exactLookupExitCode -ne 0) { exit $exactLookupExitCode }
+          if (-not ($exactLookupOutput -match "ガクセイ【がくせい】")) { throw "Exact lookup did not return the expected entry." }
+          if (-not ($exactLookupOutput -match "\[lookup\] Matches: 1 across 1 dictionaries\.")) { throw "Exact lookup returned an unexpected match count." }
+          if (-not ($exactLookupOutput -match "\[debug\] total:")) { throw "Exact lookup did not report timing." }
+
+          $normalizedLookupOutput = & swift run TsubameCLI lookup "ｶﾞｸｾｲ" --data-root $smokeRoot --debug 2>&1
+          $normalizedLookupExitCode = $LASTEXITCODE
+          $normalizedLookupOutput | ForEach-Object { Write-Host $_ }
+          if ($normalizedLookupExitCode -ne 0) { exit $normalizedLookupExitCode }
+          if (-not ($normalizedLookupOutput -match "ガクセイ【がくせい】")) { throw "Normalized lookup did not return the expected entry." }
+          if (-not ($normalizedLookupOutput -match "\[lookup\] Matches: 1 across 1 dictionaries\.")) { throw "Normalized lookup returned an unexpected match count." }
+          if (-not ($normalizedLookupOutput -match "\[debug\] total:")) { throw "Normalized lookup did not report timing." }
+
+          $deinflectedLookupOutput = & swift run TsubameCLI lookup "食べました" --data-root $smokeRoot --debug 2>&1
+          $deinflectedLookupExitCode = $LASTEXITCODE
+          $deinflectedLookupOutput | ForEach-Object { Write-Host $_ }
+          if ($deinflectedLookupExitCode -ne 0) { exit $deinflectedLookupExitCode }
+          if (-not ($deinflectedLookupOutput -match "\[lookup\] Surface: 食べました")) { throw "Deinflected lookup did not report the original surface." }
+          if (-not ($deinflectedLookupOutput -match "食べる【たべる】")) { throw "Deinflected lookup did not return the expected entry." }
+          if (-not ($deinflectedLookupOutput -match "\[lookup\] Matches: 1 across 1 dictionaries\.")) { throw "Deinflected lookup returned an unexpected match count." }
+          if (-not ($deinflectedLookupOutput -match "sourceRange=0\.\.<15")) { throw "Deinflected lookup returned an unexpected source range." }
+
+          $scanOutput = & swift run TsubameCLI scan "前食べましたｶﾞｸｾｲ後" --range "3:33" --data-root $smokeRoot --debug 2>&1
+          $scanExitCode = $LASTEXITCODE
+          $scanOutput | ForEach-Object { Write-Host $_ }
+          if ($scanExitCode -ne 0) { exit $scanExitCode }
+          if (-not ($scanOutput -match "\[scan\] Selection: 食べましたｶﾞｸｾｲ")) { throw "Scan did not report the selected text." }
+          if (-not ($scanOutput -match "\[scan\] Surface: 食べました")) { throw "Scan did not report the deinflected surface." }
+          if (-not ($scanOutput -match "\[scan\] Source range: 3\.\.<18")) { throw "Scan returned an unexpected deinflected range." }
+          if (-not ($scanOutput -match "食べる【たべる】")) { throw "Scan did not return the deinflected entry." }
+          if (-not ($scanOutput -match "\[scan\] Source range: 3\.\.<9")) { throw "Scan did not preserve the overlapping shorter range." }
+          if (-not ($scanOutput -match "\[scan\] Surface: ｶﾞｸｾｲ")) { throw "Scan did not report the normalized surface." }
+          if (-not ($scanOutput -match "\[scan\] Source range: 18\.\.<33")) { throw "Scan returned an unexpected normalized range." }
+          if (-not ($scanOutput -match "ガクセイ【がくせい】")) { throw "Scan did not return the normalized entry." }
+          if (-not ($scanOutput -match "\[scan\] Groups: 3, matches: 3 across 1 dictionaries\.")) { throw "Scan returned unexpected totals." }
+          if (-not ($scanOutput -match "\[debug\] total:")) { throw "Scan did not report timing." }
+
+          $benchmarkOutput = & swift run TsubameCLI bench lookup "食べました" --data-root $smokeRoot --warmup 1 --iterations 3 2>&1
+          $benchmarkExitCode = $LASTEXITCODE
+          $benchmarkOutput | ForEach-Object { Write-Host $_ }
+          if ($benchmarkExitCode -ne 0) { exit $benchmarkExitCode }
+          if (-not ($benchmarkOutput -match "\[bench\] Store open:")) { throw "Lookup benchmark did not report store-open timing." }
+          if (-not ($benchmarkOutput -match "\[bench\] First lookup:")) { throw "Lookup benchmark did not report first-lookup timing." }
+          if (-not ($benchmarkOutput -match "\[bench\] Warmed lookup: p50=")) { throw "Lookup benchmark did not report warmed percentiles." }
+          if (-not ($benchmarkOutput -match "\[bench\] Checksum:")) { throw "Lookup benchmark did not report its checksum." }
+
+          $scanBenchmarkOutput = & swift run TsubameCLI bench scan "前食べましたｶﾞｸｾｲ後" --range "3:33" --data-root $smokeRoot --warmup 1 --iterations 3 2>&1
+          $scanBenchmarkExitCode = $LASTEXITCODE
+          $scanBenchmarkOutput | ForEach-Object { Write-Host $_ }
+          if ($scanBenchmarkExitCode -ne 0) { exit $scanBenchmarkExitCode }
+          if (-not ($scanBenchmarkOutput -match "\[bench\] Store open:")) { throw "Scan benchmark did not report store-open timing." }
+          if (-not ($scanBenchmarkOutput -match "\[bench\] First scan:")) { throw "Scan benchmark did not report first-scan timing." }
+          if (-not ($scanBenchmarkOutput -match "\[bench\] Warmed scan: p50=")) { throw "Scan benchmark did not report warmed percentiles." }
+          if (-not ($scanBenchmarkOutput -match "\[bench\] First result: 3 groups, 3 entries")) { throw "Scan benchmark returned unexpected first-result totals." }
+          if (-not ($scanBenchmarkOutput -match "\[bench\] Checksum:")) { throw "Scan benchmark did not report its checksum." }
