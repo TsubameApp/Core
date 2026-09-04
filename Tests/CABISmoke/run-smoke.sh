@@ -5,6 +5,7 @@ core_path="${1:-Core}"
 smoke_root="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/tsubame-c-abi-smoke.XXXXXX")"
 source_path="$core_path/Tests/CABISmoke/tsubame_abi_smoke.c"
 include_path="$core_path/Sources/Interop/CTsubameABI/include"
+types_include_path="$core_path/Sources/Interop/CTsubameABITypes/include"
 swift_command="${TSUBAME_SWIFT_EXECUTABLE:-swift}"
 swiftc_command="${TSUBAME_SWIFTC_EXECUTABLE:-swiftc}"
 
@@ -33,13 +34,13 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 
   clang -std=c11 -Wall -Wextra -Werror \
     -isysroot "$sdk_path" -target "$target" \
-    -I "$include_path" \
+    -I "$include_path" -I "$types_include_path" \
     -c "$source_path" \
     -o "$smoke_root/tsubame_abi_smoke.o"
 
   clang++ -std=c++17 -Wall -Wextra -Werror \
     -isysroot "$sdk_path" -target "$target" \
-    -I "$include_path" \
+    -I "$include_path" -I "$types_include_path" \
     -x c++ -fsyntax-only "$source_path"
 
   "$swiftc_command" "$smoke_root/tsubame_abi_smoke.o" \
@@ -51,12 +52,12 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     -o "$smoke_root/tsubame_abi_smoke"
 else
   clang -std=c11 -Wall -Wextra -Werror \
-    -I "$include_path" \
+    -I "$include_path" -I "$types_include_path" \
     -c "$source_path" \
     -o "$smoke_root/tsubame_abi_smoke.o"
 
   clang++ -std=c++17 -Wall -Wextra -Werror \
-    -I "$include_path" \
+    -I "$include_path" -I "$types_include_path" \
     -x c++ -fsyntax-only "$source_path"
 
   "$swiftc_command" "$smoke_root/tsubame_abi_smoke.o" \
@@ -69,10 +70,10 @@ fi
 
 case "$(uname -s)" in
   Darwin)
-    nm -gU "$bin_path/libTsubameCoreABI.dylib" | grep -Fq _tsubame_engine_execute
+    nm -gU "$bin_path/libTsubameCoreABI.dylib" | grep -Fq _tsubame_lookup
     ;;
   Linux)
-    nm -D --defined-only "$bin_path/libTsubameCoreABI.so" | grep -Fq tsubame_engine_execute
+    nm -D --defined-only "$bin_path/libTsubameCoreABI.so" | grep -Fq tsubame_lookup
     ;;
   *)
     echo "Unsupported Unix platform for the C ABI smoke test." >&2

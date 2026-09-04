@@ -8,226 +8,104 @@ static void fail(const char *message) {
     fprintf(stderr, "C ABI smoke failure: %s\n", message);
     exit(1);
 }
-
-static int contains_bytes(
-    const TsubameBuffer *buffer,
-    const char *needle
-) {
-    const size_t needle_length = strlen(needle);
-    size_t offset;
-
-    if (needle_length == 0) {
-        return 1;
-    }
-    if (buffer->data == NULL || needle_length > buffer->length) {
-        return 0;
-    }
-    for (offset = 0; offset <= buffer->length - needle_length; offset += 1) {
-        if (memcmp(buffer->data + offset, needle, needle_length) == 0) {
-            return 1;
-        }
-    }
-    return 0;
+static int equals(TsubameString value, const char *expected) {
+    const size_t length = strlen(expected);
+    return value.data != NULL && value.length == length &&
+        memcmp(value.data, expected, length) == 0;
 }
-
-static void print_error(const TsubameBuffer *error) {
-    if (error->data != NULL && error->length > 0) {
-        fwrite(error->data, 1, error->length, stderr);
-        fputc('\n', stderr);
-    }
-}
-
-static TsubameBuffer execute_success(
-    TsubameEngine *engine,
-    const uint8_t *request,
-    size_t request_length
-) {
-    TsubameBuffer result = {NULL, 0};
-    TsubameBuffer error = {NULL, 0};
-    const TsubameStatus status = tsubame_engine_execute(
-        engine,
-        TSUBAME_SERIALIZATION_JSON_V1,
-        request,
-        request_length,
-        &result,
-        &error
-    );
-
+static void expect_ok(TsubameStatus status, const TsubameError *error) {
     if (status != TSUBAME_STATUS_OK) {
-        print_error(&error);
-        tsubame_buffer_free(&error);
-        fail("execute returned a failure status");
+        if (error->message.data) fwrite(error->message.data, 1, error->message.length, stderr);
+        fail("operation failed");
     }
-    if (result.data == NULL || result.length == 0) {
-        tsubame_buffer_free(&result);
-        fail("execute returned an empty result");
+    if (error->status != 0 || error->code.data || error->message.data) {
+        fail("success returned an error");
     }
-    if (error.data != NULL || error.length != 0) {
-        tsubame_buffer_free(&result);
-        tsubame_buffer_free(&error);
-        fail("successful execute returned an error buffer");
-    }
-    return result;
 }
-
-static void expect_failure(
-    TsubameEngine *engine,
-    const uint8_t *request,
-    size_t request_length,
-    TsubameStatus expected_status,
-    const char *expected_error_code
-) {
-    TsubameBuffer result = {NULL, 0};
-    TsubameBuffer error = {NULL, 0};
-    const TsubameStatus status = tsubame_engine_execute(
-        engine,
-        TSUBAME_SERIALIZATION_JSON_V1,
-        request,
-        request_length,
-        &result,
-        &error
-    );
-
-    if (status != expected_status) {
-        print_error(&error);
-        fail("execute returned an unexpected failure status");
-    }
-    if (result.data != NULL || result.length != 0) {
-        fail("failed execute returned a result buffer");
-    }
-    if (!contains_bytes(&error, expected_error_code)) {
-        print_error(&error);
-        fail("failed execute returned an unexpected error payload");
-    }
-    tsubame_buffer_free(&error);
-    if (error.data != NULL || error.length != 0) {
-        fail("buffer_free did not clear the error buffer");
-    }
-    tsubame_buffer_free(&error);
-}
-
 int main(int argc, char **argv) {
-    static const char positioned_request[] =
-        "{\"schemaVersion\":1,\"operation\":\"positionedLookup\","
-        "\"request\":{\"text\":\"食べました\",\"position\":0,"
-        "\"resultLimit\":100}}";
-    static const char scan_request[] =
-        "{\"schemaVersion\":1,\"operation\":\"rangeScan\","
-        "\"request\":{\"text\":\"前食べましたｶﾞｸｾｲ後\","
-        "\"range\":{\"start\":3,\"end\":33},"
-        "\"resultGroupLimit\":100,\"entriesPerGroupLimit\":100}}";
-    static const uint8_t malformed_utf8[] = {0xC3, 0x28};
-    static const char malformed_json[] = "{";
+    static const char query[] = "食べました";
+    static const char scan_text[] = "前食べましたｶﾞｸｾｲ後";
     TsubameEngine *engine = NULL;
-    TsubameBuffer error = {NULL, 0};
-    TsubameBuffer positioned;
-    TsubameBuffer positioned_again;
-    TsubameBuffer scan;
+    TsubameResult *result = NULL;
+    TsubameResult *scan = NULL;
+    TsubameError error = {0, {NULL, 0}, {NULL, 0}};
+    TsubameResultView view = {NULL, 0};
+    TsubameResultView scan_view = {NULL, 0};
+    const TsubameValue *value = NULL;
+    const TsubameValue *again = NULL;
+    uint8_t *input;
+    const TsubameEntry *entry;
+    const TsubameDefinition *definition;
     TsubameStatus status;
-    char *database_path;
-    size_t database_path_length;
 
-    if (argc != 2) {
-        fail("expected one dictionary.sqlite path argument");
-    }
-    if (tsubame_abi_version() != TSUBAME_ABI_VERSION) {
-        fail("unexpected ABI version");
-    }
-
+    if (argc != 2) fail("expected a database path");
+    if (tsubame_abi_version() != TSUBAME_ABI_VERSION) fail("unexpected ABI version");
     status = tsubame_engine_create(NULL, 1, &engine, &error);
-    if (status != TSUBAME_STATUS_INVALID_ARGUMENT || engine != NULL) {
-        fail("NULL plus nonzero length was not rejected");
+    if (status != TSUBAME_STATUS_INVALID_ARGUMENT || engine != NULL ||
+        error.status != status || !equals(error.code, "null_input")) {
+        fail("invalid engine input was not rejected");
     }
-    if (!contains_bytes(&error, "null_input")) {
-        print_error(&error);
-        fail("invalid pointer pair returned an unexpected error");
-    }
-    tsubame_buffer_free(&error);
+    tsubame_error_free(&error);
+    if (error.code.data || error.message.data || error.status) fail("error_free did not clear");
+    tsubame_error_free(&error);
 
-    database_path_length = strlen(argv[1]);
-    database_path = (char *)malloc(database_path_length);
-    if (database_path == NULL) {
-        fail("could not allocate the path input buffer");
+    expect_ok(tsubame_engine_create(
+        (const uint8_t *)argv[1], strlen(argv[1]), &engine, &error), &error);
+    input = (uint8_t *)malloc(sizeof(query) - 1);
+    if (input == NULL) fail("allocation failed");
+    memcpy(input, query, sizeof(query) - 1);
+    status = tsubame_lookup(engine, input, sizeof(query) - 1, 0, 100, &result, &error);
+    memset(input, 0, sizeof(query) - 1);
+    free(input);
+    expect_ok(status, &error);
+    if (!result || tsubame_result_get_view(result, &view) != TSUBAME_STATUS_OK ||
+        view.group_count != 1 || !view.groups || view.groups[0].entry_count != 1 ||
+        view.groups[0].source_range.start != 0 || view.groups[0].source_range.end != 15) {
+        fail("unexpected lookup groups");
     }
-    memcpy(database_path, argv[1], database_path_length);
-    status = tsubame_engine_create(
-        (const uint8_t *)database_path,
-        database_path_length,
-        &engine,
-        &error
-    );
-    memset(database_path, 0, database_path_length);
-    free(database_path);
-    if (status != TSUBAME_STATUS_OK || engine == NULL) {
-        print_error(&error);
-        tsubame_buffer_free(&error);
-        fail("engine creation failed");
+    entry = &view.groups[0].entries[0];
+    if (!equals(entry->expression, "食べる") || !equals(entry->reading, "たべる") ||
+        entry->match_count != 1 || entry->matches[0].key_type != TSUBAME_KEY_EXPRESSION ||
+        entry->definition_count == 0) {
+        fail("unexpected entry");
     }
-    if (error.data != NULL || error.length != 0) {
-        fail("engine creation returned an error buffer on success");
-    }
+    definition = &entry->definitions[0];
 
-    positioned = execute_success(
-        engine,
-        (const uint8_t *)positioned_request,
-        sizeof(positioned_request) - 1
-    );
-    if (!contains_bytes(&positioned, "\"expression\":\"食べる\"")) {
-        fail("positioned lookup did not deinflect 食べました to 食べる");
+    expect_ok(tsubame_scan(engine, (const uint8_t *)scan_text, sizeof(scan_text) - 1,
+        3, 33, 100, 100, &scan, &error), &error);
+    if (tsubame_result_get_view(scan, &scan_view) != TSUBAME_STATUS_OK ||
+        scan_view.group_count != 3 ||
+        scan_view.groups[0].source_range.start != 3 ||
+        scan_view.groups[0].source_range.end != 18 ||
+        scan_view.groups[1].source_range.start != 3 ||
+        scan_view.groups[1].source_range.end != 9 ||
+        scan_view.groups[2].source_range.start != 18 ||
+        scan_view.groups[2].source_range.end != 33 ||
+        !equals(scan_view.groups[2].entries[0].expression, "ガクセイ")) {
+        fail("unexpected scan groups");
     }
-    if (!contains_bytes(&positioned, "\"sourceRange\":{\"end\":15,\"start\":0}")) {
-        fail("positioned lookup returned an unexpected source range");
-    }
+    tsubame_result_destroy(scan);
+    scan = NULL;
 
-    positioned_again = execute_success(
-        engine,
-        (const uint8_t *)positioned_request,
-        sizeof(positioned_request) - 1
-    );
-    if (positioned.length != positioned_again.length ||
-        memcmp(positioned.data, positioned_again.data, positioned.length) != 0) {
-        fail("JSON serialization is not deterministic");
+    status = tsubame_lookup(engine, NULL, 1, 0, 100, &scan, &error);
+    if (status != TSUBAME_STATUS_INVALID_ARGUMENT || scan != NULL) {
+        fail("invalid lookup input was not rejected");
     }
-    tsubame_buffer_free(&positioned_again);
-    tsubame_buffer_free(&positioned);
-    if (positioned.data != NULL || positioned.length != 0) {
-        fail("buffer_free did not clear the positioned result");
-    }
-    tsubame_buffer_free(&positioned);
-
-    scan = execute_success(
-        engine,
-        (const uint8_t *)scan_request,
-        sizeof(scan_request) - 1
-    );
-    if (!contains_bytes(&scan, "\"sourceRange\":{\"end\":18,\"start\":3}") ||
-        !contains_bytes(&scan, "\"sourceRange\":{\"end\":9,\"start\":3}") ||
-        !contains_bytes(&scan, "\"sourceRange\":{\"end\":33,\"start\":18}")) {
-        fail("range scan did not preserve absolute original UTF-8 ranges");
-    }
-    if (!contains_bytes(&scan, "\"expression\":\"食べる\"") ||
-        !contains_bytes(&scan, "\"expression\":\"ガクセイ\"")) {
-        fail("range scan did not return the expected dictionary entries");
-    }
-    tsubame_buffer_free(&scan);
-
-    expect_failure(
-        engine,
-        malformed_utf8,
-        sizeof(malformed_utf8),
-        TSUBAME_STATUS_INVALID_UTF8,
-        "invalid_request_utf8"
-    );
-    expect_failure(
-        engine,
-        (const uint8_t *)malformed_json,
-        sizeof(malformed_json) - 1,
-        TSUBAME_STATUS_INVALID_JSON,
-        "malformed_json"
-    );
-
+    tsubame_error_free(&error);
     tsubame_engine_destroy(engine);
+    engine = NULL;
+
+    /* Result memory is independent of the engine, input and later queries. */
+    if (!equals(entry->expression, "食べる")) fail("result did not survive engine destruction");
+    expect_ok(tsubame_content_get(definition->content, &value, &error), &error);
+    if (!value || value->kind != TSUBAME_VALUE_STRING ||
+        !equals(value->value.string_value, "to eat")) fail("unexpected typed content");
+    expect_ok(tsubame_content_get(definition->content, &again, &error), &error);
+    if (again != value) fail("content was not cached");
+    tsubame_result_destroy(result);
+    tsubame_result_destroy(NULL);
     tsubame_engine_destroy(NULL);
+    tsubame_error_free(NULL);
     puts("Tsubame C ABI smoke passed.");
     return 0;
 }

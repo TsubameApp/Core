@@ -12,6 +12,11 @@ let package = Package(
         .executable(name: "TsubameCLI", targets: ["TsubameCLI"])
     ],
     targets: [
+        .target(
+            name: "CTsubameABITypes",
+            path: "Sources/Interop/CTsubameABITypes",
+            publicHeadersPath: "include"
+        ),
         .systemLibrary(
             name: "CSQLiteSystem",
             path: "Sources/ThirdParty/CSQLiteSystem"
@@ -46,6 +51,7 @@ let package = Package(
             name: "TsubameCore",
             dependencies: [
                 "CTsubameZIP",
+                "CTsubameABITypes",
                 .target(
                     name: "CSQLiteSystem",
                     condition: .when(platforms: [.macOS, .linux])
@@ -59,7 +65,7 @@ let package = Package(
         ),
         .target(
             name: "CTsubameABI",
-            dependencies: ["TsubameCore"],
+            dependencies: ["TsubameCore", "CTsubameABITypes"],
             path: "Sources/Interop/CTsubameABI",
             publicHeadersPath: "include",
             cSettings: [
@@ -73,7 +79,10 @@ let package = Package(
         ),
         .testTarget(
             name: "TsubameCoreTests",
-            dependencies: ["TsubameCore", "CTsubameABI"],
+            dependencies: [
+                "TsubameCore",
+                "CTsubameABI"
+            ],
             resources: [.process("Resources")]
         ),
         .testTarget(

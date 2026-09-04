@@ -1,8 +1,6 @@
 #ifndef TSUBAME_H
 #define TSUBAME_H
-
-#include <stddef.h>
-#include <stdint.h>
+#include "tsubame_types.h"
 
 #if defined(_WIN32)
 #  if defined(TSUBAME_ABI_BUILDING)
@@ -21,84 +19,47 @@ extern "C" {
 #endif
 
 #define TSUBAME_ABI_VERSION 1u
-#define TSUBAME_SERIALIZATION_JSON_V1 1u
+TSUBAME_API uint32_t tsubame_abi_version(void);
 
-typedef struct TsubameEngine TsubameEngine;
+/* Inputs are borrowed only during the call. All output pointers are required.
+ * Output slots are cleared before validation and must not hold owned objects.
+ * Errors own their strings; use tsubame_error_free, not the system allocator. */
+TSUBAME_API TsubameStatus tsubame_engine_create(
+    const uint8_t *database_path, size_t database_path_length,
+    TsubameEngine **out_engine, TsubameError *out_error);
+TSUBAME_API void tsubame_engine_destroy(TsubameEngine *engine);
 
-typedef struct TsubameBuffer {
-    uint8_t *data;
-    size_t length;
-} TsubameBuffer;
+/* Offsets are half-open original UTF-8 byte offsets on Character boundaries.
+ * Calls on an engine are serialized. Destroy must not race with calls using it.
+ * On success the caller owns *out_result; on failure it is NULL. */
+TSUBAME_API TsubameStatus tsubame_lookup(
+    TsubameEngine *engine, const uint8_t *text, size_t text_length,
+    size_t position, size_t result_limit,
+    TsubameResult **out_result, TsubameError *out_error);
+TSUBAME_API TsubameStatus tsubame_scan(
+    TsubameEngine *engine, const uint8_t *text, size_t text_length,
+    size_t start, size_t end, size_t group_limit, size_t entries_per_group_limit,
+    TsubameResult **out_result, TsubameError *out_error);
 
-typedef int32_t TsubameStatus;
+/* The view and all nested pointers are immutable and borrowed until result
+ * destruction. They survive subsequent queries and engine destruction.
+ * NULL is accepted by destroy. Each non-NULL result must be destroyed once. */
+TSUBAME_API TsubameStatus tsubame_result_get_view(
+    const TsubameResult *result, TsubameResultView *out_view);
+TSUBAME_API void tsubame_result_destroy(TsubameResult *result);
 
-enum {
-    TSUBAME_STATUS_OK = 0,
-    TSUBAME_STATUS_INVALID_ARGUMENT = 1,
-    TSUBAME_STATUS_INVALID_UTF8 = 2,
-    TSUBAME_STATUS_INVALID_JSON = 3,
-    TSUBAME_STATUS_UNSUPPORTED = 4,
-    TSUBAME_STATUS_INVALID_REQUEST = 5,
-    TSUBAME_STATUS_ENGINE_OPEN_FAILED = 6,
-    TSUBAME_STATUS_EXECUTION_FAILED = 7,
-    TSUBAME_STATUS_RESULT_TOO_LARGE = 8,
-    TSUBAME_STATUS_INTERNAL_ERROR = 255
-};
+/* Lazily materializes and caches typed structured content. Concurrent reads
+ * are supported. The returned value is borrowed until its RESULT is destroyed.
+ * Only the union field selected by kind is valid. Object keys are sorted.
+ * Result destruction must not race with any view/content access. */
+TSUBAME_API TsubameStatus tsubame_content_get(
+    const TsubameContent *content, const TsubameValue **out_value,
+    TsubameError *out_error);
 
-/* Returns the ABI version implemented by this library. */
-TSUBAME_API uint32_t
-tsubame_abi_version(void);
-
-/*
- * Opens one dictionary.sqlite. The path is UTF-8. The caller owns the input;
- * Core copies it before this call returns and never retains the pointer. A NULL
- * input pointer is valid only when its length is zero.
- *
- * On success, *out_engine is non-NULL and *out_error is empty. On failure,
- * *out_engine is NULL and *out_error may contain a UTF-8 JSON error envelope.
- * Release that buffer with tsubame_buffer_free.
- */
-TSUBAME_API TsubameStatus
-tsubame_engine_create(
-    const uint8_t *database_path,
-    size_t database_path_length,
-    TsubameEngine **out_engine,
-    TsubameBuffer *out_error
-);
-
-/*
- * Releases an engine. NULL is accepted. Destroy must not race with execute
- * calls that use the same handle.
- */
-TSUBAME_API void
-tsubame_engine_destroy(TsubameEngine *engine);
-
-/*
- * Executes one JSON request. The caller owns the input; Core copies it during
- * the call. A NULL input pointer is valid only when its length is zero. ABI v1
- * supports TSUBAME_SERIALIZATION_JSON_V1. Concurrent calls on one engine are
- * supported and serialized by Core.
- *
- * out_result and out_error must be distinct non-NULL pointers. Exactly one is
- * normally populated. Release either allocation with tsubame_buffer_free.
- * Returned JSON is UTF-8 and is not NUL-terminated.
- */
-TSUBAME_API TsubameStatus
-tsubame_engine_execute(
-    TsubameEngine *engine,
-    uint32_t serialization,
-    const uint8_t *request,
-    size_t request_length,
-    TsubameBuffer *out_result,
-    TsubameBuffer *out_error
-);
-
-/* Releases a Core-owned output buffer, then resets it to {NULL, 0}. */
-TSUBAME_API void
-tsubame_buffer_free(TsubameBuffer *buffer);
+/* Frees diagnostic strings and clears the struct. NULL and {0} are accepted. */
+TSUBAME_API void tsubame_error_free(TsubameError *error);
 
 #ifdef __cplusplus
 }
 #endif
-
 #endif
