@@ -1,12 +1,21 @@
 import Foundation
 
+public enum LookupContentPolicy: Sendable {
+    /// Retains plain text and definition identity; contentJSON is the literal null.
+    /// Use loadEntryDetails(entryID:) to fetch typed rich content on demand.
+    case primary
+    case complete
+}
+
 public final class SQLiteDictionaryStore: DictionaryStore {
     private static let maximumLookupKeyCount = 500
     private static let maximumResultCount = 500
 
-    private let connection: SQLiteConnection
+    let connection: SQLiteConnection
+    private let contentPolicy: LookupContentPolicy
 
-    public init(databaseURL: URL) throws {
+    public init(databaseURL: URL, contentPolicy: LookupContentPolicy = .complete) throws {
+        self.contentPolicy = contentPolicy
         guard databaseURL.isFileURL else {
             throw DictionaryStoreError.databaseIsNotLocalFile(databaseURL)
         }
@@ -275,7 +284,7 @@ private extension SQLiteDictionaryStore {
         let placeholders = Array(repeating: "?", count: entryIDs.count).joined(separator: ", ")
         let statement = try connection.prepare(
             """
-            SELECT entry_id, position, kind, text, content_json
+            SELECT entry_id, position, kind, text, \(contentPolicy == .complete ? "content_json" : "CAST('null' AS BLOB)")
             FROM term_definition
             WHERE entry_id IN (\(placeholders))
             ORDER BY entry_id, position

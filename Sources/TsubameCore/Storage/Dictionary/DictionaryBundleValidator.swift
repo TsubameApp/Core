@@ -57,5 +57,22 @@ enum DictionaryBundleValidator {
                 )
             }
         }
+        let definitions = try connection.prepare("SELECT entry_id, position, content_json FROM term_definition WHERE kind != 'text'")
+        defer { definitions.finalizeIgnoringErrors() }
+        let decoder = DictionaryGlossaryDecoder()
+        while try definitions.step() == .row {
+            try Task.checkCancellation()
+            guard let data = definitions.data(at: 2) else { throw DictionaryStoreError.invalidStoredDefinition }
+            let context = "entry \(definitions.integer(at: 0)), definition \(definitions.integer(at: 1))"
+            do {
+                for image in try decoder.decode(data).flatMap(\.images) {
+                    guard let resource = expectedByPath[image.path.rawValue], resource.mediaType.hasPrefix("image/") else {
+                        throw DictionaryInstallationError.resourceValidationFailed("\(context): \(image.path.rawValue)")
+                    }
+                }
+            } catch {
+                throw DictionaryInstallationError.resourceValidationFailed("\(context): \(error.localizedDescription)")
+            }
+        }
     }
 }
