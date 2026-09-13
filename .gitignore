@@ -6,6 +6,9 @@
 .swiftpm
 Packages
 
+# CMake
+.cmake-build/
+
 # Xcode user and build data
 DerivedData/
 xcuserdata/
