@@ -101,11 +101,18 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install system SQLite
-        run: apt-get update && apt-get install --yes libsqlite3-dev
+      - name: Install CMake dependencies
+        run: |
+          apt-get update
+          apt-get install --yes cmake ninja-build libsqlite3-dev
 
       - name: Report toolchain
         run: swift --version
+
+      - name: Smoke-test native CMake build
+        run: |
+          cmake -S . -B .cmake-build -G Ninja
+          cmake --build .cmake-build
 
       - name: Run Core tests
         run: swift test
