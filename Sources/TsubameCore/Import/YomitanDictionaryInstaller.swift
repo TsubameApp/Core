@@ -144,11 +144,8 @@ public struct YomitanDictionaryInstaller: Sendable {
             )
         }
 
-        let backupName = ".replacement-backup-\(importID.uuidString.lowercased())"
-        let backupURL = layout.dictionariesRootURL.appending(
-            path: backupName,
-            directoryHint: .isDirectory
-        )
+        let backupURL = layout.replacementBackupURL(for: importID)
+        let backupName = backupURL.lastPathComponent
         guard !fileManager.fileExists(atPath: backupURL.path) else {
             throw DictionaryInstallationError.replacementBackupAlreadyExists(backupURL)
         }

@@ -30,6 +30,13 @@ public struct DictionaryLibraryLayout: Sendable, Equatable {
         )
     }
 
+    public func replacementBackupURL(for importID: UUID) -> URL {
+        dictionariesRootURL.appending(
+            path: ".replacement-backup-\(identifierComponent(importID))",
+            directoryHint: .isDirectory
+        )
+    }
+
     public func temporaryWorkingURL(for importID: UUID) -> URL {
         locations.temporaryRoot
             .appending(path: "Tsubame", directoryHint: .isDirectory)
