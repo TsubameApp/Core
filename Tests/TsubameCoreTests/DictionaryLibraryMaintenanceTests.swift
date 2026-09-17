@@ -39,10 +39,10 @@ struct DictionaryLibraryMaintenanceTests {
         let report = DictionaryLibraryMaintenance(layout: layout)
             .cleanupAbandonedImports()
 
-        #expect(report.removedStagingDirectories == [abandoned.standardizedFileURL])
-        #expect(Set(report.ignoredEntries) == Set([
-            unknownDirectory.standardizedFileURL,
-            unknownFile.standardizedFileURL,
+        #expect(report.removedStagingDirectories.map(\.path) == [abandoned.path])
+        #expect(Set(report.ignoredEntries.map(\.path)) == Set([
+            unknownDirectory.path,
+            unknownFile.path,
         ]))
         #expect(report.issues.isEmpty)
         #expect(!fileManager.fileExists(atPath: abandoned.path))
@@ -71,7 +71,7 @@ struct DictionaryLibraryMaintenanceTests {
             .cleanupAbandonedImports()
 
         #expect(report.removedStagingDirectories.isEmpty)
-        #expect(report.ignoredEntries == [link.standardizedFileURL])
+        #expect(report.ignoredEntries.map(\.path) == [link.path])
         #expect(report.issues.isEmpty)
         #expect(fileManager.fileExists(atPath: link.path))
         #expect(fileManager.fileExists(atPath: outside.appending(path: "value.txt").path))
@@ -102,8 +102,8 @@ struct DictionaryLibraryMaintenanceTests {
             .cleanupAbandonedImports()
 
         #expect(report.removedStagingDirectories.isEmpty)
-        #expect(report.ignoredEntries == [
-            layout.publicationStagingRootURL.standardizedFileURL,
+        #expect(report.ignoredEntries.map(\.path) == [
+            layout.publicationStagingRootURL.path,
         ])
         #expect(report.issues.isEmpty)
         #expect(fileManager.fileExists(atPath: outsideImport.path))
