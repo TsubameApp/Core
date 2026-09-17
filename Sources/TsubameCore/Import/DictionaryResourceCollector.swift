@@ -7,6 +7,7 @@ struct DictionaryResourceCollector {
         from sourceRoot: URL,
         to resourcesRoot: URL
     ) throws -> [DictionaryResourceRecord] {
+        try Task.checkCancellation()
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: resourcesRoot, withIntermediateDirectories: true)
 
@@ -33,6 +34,7 @@ struct DictionaryResourceCollector {
         var totalBytes: Int64 = 0
 
         for case let sourceURL as URL in enumerator {
+            try Task.checkCancellation()
             let values = try sourceURL.resourceValues(forKeys: keys)
             let relativePath = try relativePath(
                 for: sourceURL,
@@ -97,6 +99,7 @@ struct DictionaryResourceCollector {
                 withIntermediateDirectories: true
             )
             try fileManager.copyItem(at: sourceURL, to: destination)
+            try Task.checkCancellation()
             records.append(
                 DictionaryResourceRecord(
                     logicalPath: logicalPath,

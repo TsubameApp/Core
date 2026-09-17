@@ -51,6 +51,7 @@ public struct YomitanSQLiteDictionaryImporter: Sendable {
         progress: DictionaryImportProgressHandler? = nil,
         reportSourcePreparation: Bool = true
     ) throws -> YomitanSQLiteImportResult {
+        try Task.checkCancellation()
         let fileManager = FileManager.default
         guard databaseURL.isFileURL else {
             throw DictionaryImportError.destinationIsNotLocalFile(databaseURL)
@@ -91,6 +92,7 @@ public struct YomitanSQLiteDictionaryImporter: Sendable {
             )
             extractedDirectory = extractionURL
         }
+        try Task.checkCancellation()
         if reportSourcePreparation {
             progress?(.phaseFinished(
                 .sourcePreparation,
@@ -109,6 +111,7 @@ public struct YomitanSQLiteDictionaryImporter: Sendable {
         )
 
         do {
+            try Task.checkCancellation()
             return try buildDatabase(
                 from: dictionaryDirectory,
                 at: databaseURL,
@@ -138,6 +141,7 @@ private extension YomitanSQLiteDictionaryImporter {
         resources: [DictionaryResourceRecord],
         progress: DictionaryImportProgressHandler?
     ) throws -> YomitanSQLiteImportResult {
+        try Task.checkCancellation()
         let files = try importFiles(in: directory)
         let indexData = try Data(contentsOf: files.index)
         let decoder = JSONDecoder()
@@ -172,6 +176,7 @@ private extension YomitanSQLiteDictionaryImporter {
             progress: progress
         ) { session in
             for (bankOrder, url) in files.termBanks.enumerated() {
+                try Task.checkCancellation()
                 currentBank += 1
                 let timer = DictionaryImportTimer()
                 progress?(.bankStarted(
@@ -184,6 +189,7 @@ private extension YomitanSQLiteDictionaryImporter {
                     [YomitanTermEntry].self,
                     from: Data(contentsOf: url)
                 )
+                try Task.checkCancellation()
                 try session.insertTerms(entries, bankOrder: bankOrder)
                 termSummaries.append(summary(for: url, count: entries.count))
                 progress?(.bankFinished(
@@ -197,6 +203,7 @@ private extension YomitanSQLiteDictionaryImporter {
             }
 
             for (bankOrder, url) in files.termMetadataBanks.enumerated() {
+                try Task.checkCancellation()
                 currentBank += 1
                 let timer = DictionaryImportTimer()
                 progress?(.bankStarted(
@@ -209,6 +216,7 @@ private extension YomitanSQLiteDictionaryImporter {
                     [YomitanTermMetadata].self,
                     from: Data(contentsOf: url)
                 )
+                try Task.checkCancellation()
                 try session.insertTermMetadata(entries, bankOrder: bankOrder)
                 termMetadataSummaries.append(summary(for: url, count: entries.count))
                 progress?(.bankFinished(
@@ -222,6 +230,7 @@ private extension YomitanSQLiteDictionaryImporter {
             }
 
             for (bankOrder, url) in files.kanjiBanks.enumerated() {
+                try Task.checkCancellation()
                 currentBank += 1
                 let timer = DictionaryImportTimer()
                 progress?(.bankStarted(
@@ -234,6 +243,7 @@ private extension YomitanSQLiteDictionaryImporter {
                     [YomitanKanjiEntry].self,
                     from: Data(contentsOf: url)
                 )
+                try Task.checkCancellation()
                 try session.insertKanji(entries, bankOrder: bankOrder)
                 kanjiSummaries.append(summary(for: url, count: entries.count))
                 progress?(.bankFinished(
@@ -247,6 +257,7 @@ private extension YomitanSQLiteDictionaryImporter {
             }
 
             for (bankOrder, url) in files.kanjiMetadataBanks.enumerated() {
+                try Task.checkCancellation()
                 currentBank += 1
                 let timer = DictionaryImportTimer()
                 progress?(.bankStarted(
@@ -259,6 +270,7 @@ private extension YomitanSQLiteDictionaryImporter {
                     [YomitanKanjiMetadata].self,
                     from: Data(contentsOf: url)
                 )
+                try Task.checkCancellation()
                 try session.insertKanjiMetadata(entries, bankOrder: bankOrder)
                 kanjiMetadataSummaries.append(summary(for: url, count: entries.count))
                 progress?(.bankFinished(
@@ -272,6 +284,7 @@ private extension YomitanSQLiteDictionaryImporter {
             }
 
             for (bankOrder, url) in files.tagBanks.enumerated() {
+                try Task.checkCancellation()
                 currentBank += 1
                 let timer = DictionaryImportTimer()
                 progress?(.bankStarted(
@@ -284,6 +297,7 @@ private extension YomitanSQLiteDictionaryImporter {
                     [YomitanTag].self,
                     from: Data(contentsOf: url)
                 )
+                try Task.checkCancellation()
                 try session.insertTags(entries, bankOrder: bankOrder)
                 tagSummaries.append(summary(for: url, count: entries.count))
                 progress?(.bankFinished(

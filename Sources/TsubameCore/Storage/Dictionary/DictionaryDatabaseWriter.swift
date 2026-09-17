@@ -18,23 +18,28 @@ final class DictionaryDatabaseWriter {
         progress: DictionaryImportProgressHandler? = nil,
         body: (DictionaryDatabaseImportSession) throws -> Result
     ) throws -> Result {
+        try Task.checkCancellation()
         try connection.execute("PRAGMA foreign_keys = ON")
         let transactionTimer = DictionaryImportTimer()
         progress?(.phaseStarted(.databaseTransaction))
         let result = try connection.inTransaction {
+            try Task.checkCancellation()
             let schemaTimer = DictionaryImportTimer()
             progress?(.phaseStarted(.databaseSchema))
             try createTables()
             try insertDictionary(index, indexData: indexData)
             try insertResources(resources)
+            try Task.checkCancellation()
             progress?(.phaseFinished(.databaseSchema, elapsedSeconds: schemaTimer.elapsedSeconds))
 
             let session = try DictionaryDatabaseImportSession(connection: connection)
             let result = try body(session)
+            try Task.checkCancellation()
             try session.finish()
 
             let indicesTimer = DictionaryImportTimer()
             progress?(.phaseStarted(.databaseIndices))
+            try Task.checkCancellation()
             try createIndices()
             try connection.execute("PRAGMA user_version = \(DictionaryDatabaseSchema.currentVersion)")
             progress?(.phaseFinished(.databaseIndices, elapsedSeconds: indicesTimer.elapsedSeconds))
@@ -47,6 +52,7 @@ final class DictionaryDatabaseWriter {
 
         let integrityTimer = DictionaryImportTimer()
         progress?(.phaseStarted(.databaseIntegrity))
+        try Task.checkCancellation()
         try validateIntegrity()
         progress?(.phaseFinished(.databaseIntegrity, elapsedSeconds: integrityTimer.elapsedSeconds))
         try connection.close()
@@ -219,6 +225,7 @@ final class DictionaryDatabaseWriter {
         defer { statement.finalizeIgnoringErrors() }
 
         for resource in resources {
+            try Task.checkCancellation()
             try statement.bind(resource.logicalPath.rawValue, at: 1)
             try statement.bind(resource.storedRelativePath, at: 2)
             try statement.bind(resource.mediaType, at: 3)
@@ -329,6 +336,7 @@ final class DictionaryDatabaseImportSession {
 
     func insertTerms(_ entries: [YomitanTermEntry], bankOrder: Int) throws {
         for (entryOrder, entry) in entries.enumerated() {
+            try Task.checkCancellation()
             let entryID = nextTermID
             nextTermID += 1
 
@@ -345,6 +353,7 @@ final class DictionaryDatabaseImportSession {
             try complete(termEntry)
 
             for (position, item) in entry.glossary.enumerated() {
+                try Task.checkCancellation()
                 try definition.bind(entryID, at: 1)
                 try definition.bind(Int64(position), at: 2)
                 try definition.bind(item.kind, at: 3)
@@ -363,6 +372,7 @@ final class DictionaryDatabaseImportSession {
 
     func insertTermMetadata(_ entries: [YomitanTermMetadata], bankOrder: Int) throws {
         for (entryOrder, entry) in entries.enumerated() {
+            try Task.checkCancellation()
             try termMetadata.bind(nextTermMetadataID, at: 1)
             nextTermMetadataID += 1
             try termMetadata.bind(Int64(bankOrder), at: 2)
@@ -376,6 +386,7 @@ final class DictionaryDatabaseImportSession {
 
     func insertKanji(_ entries: [YomitanKanjiEntry], bankOrder: Int) throws {
         for (entryOrder, entry) in entries.enumerated() {
+            try Task.checkCancellation()
             try kanjiEntry.bind(nextKanjiID, at: 1)
             nextKanjiID += 1
             try kanjiEntry.bind(Int64(bankOrder), at: 2)
@@ -392,6 +403,7 @@ final class DictionaryDatabaseImportSession {
 
     func insertKanjiMetadata(_ entries: [YomitanKanjiMetadata], bankOrder: Int) throws {
         for (entryOrder, entry) in entries.enumerated() {
+            try Task.checkCancellation()
             try kanjiMetadata.bind(nextKanjiMetadataID, at: 1)
             nextKanjiMetadataID += 1
             try kanjiMetadata.bind(Int64(bankOrder), at: 2)
@@ -405,6 +417,7 @@ final class DictionaryDatabaseImportSession {
 
     func insertTags(_ entries: [YomitanTag], bankOrder: Int) throws {
         for (entryOrder, entry) in entries.enumerated() {
+            try Task.checkCancellation()
             try tag.bind(nextTagID, at: 1)
             nextTagID += 1
             try tag.bind(Int64(bankOrder), at: 2)

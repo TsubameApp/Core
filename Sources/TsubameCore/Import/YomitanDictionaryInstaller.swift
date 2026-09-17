@@ -41,6 +41,7 @@ public struct YomitanDictionaryInstaller: Sendable {
         importID: UUID = UUID(),
         progress: DictionaryImportProgressHandler? = nil
     ) throws -> InstalledDictionaryResult {
+        try Task.checkCancellation()
         let totalTimer = DictionaryImportTimer()
         let fileManager = FileManager.default
         let finalBundle = layout.dictionaryBundleURL(for: dictionaryID)
@@ -70,11 +71,13 @@ public struct YomitanDictionaryInstaller: Sendable {
 
         let sourceTimer = DictionaryImportTimer()
         progress?(.phaseStarted(.sourcePreparation))
+        try Task.checkCancellation()
         let dictionaryDirectory = try prepareSource(
             source,
             workingDirectory: workingDirectory,
             fileManager: fileManager
         )
+        try Task.checkCancellation()
         progress?(.phaseFinished(
             .sourcePreparation,
             elapsedSeconds: sourceTimer.elapsedSeconds
@@ -85,14 +88,17 @@ public struct YomitanDictionaryInstaller: Sendable {
         )
         let resourcesTimer = DictionaryImportTimer()
         progress?(.phaseStarted(.resourceCopy))
+        try Task.checkCancellation()
         let resources = try DictionaryResourceCollector(limits: resourceLimits)
             .collectAndCopy(from: dictionaryDirectory, to: stagingResources)
+        try Task.checkCancellation()
         progress?(.phaseFinished(
             .resourceCopy,
             elapsedSeconds: resourcesTimer.elapsedSeconds
         ))
 
         let stagingDatabase = stagingBundle.appending(path: "dictionary.sqlite")
+        try Task.checkCancellation()
         let sqliteResult = try YomitanSQLiteDictionaryImporter(
             temporaryRoot: layout.locations.temporaryRoot
         ).import(
@@ -102,9 +108,11 @@ public struct YomitanDictionaryInstaller: Sendable {
             progress: progress,
             reportSourcePreparation: false
         )
+        try Task.checkCancellation()
 
         let manifestTimer = DictionaryImportTimer()
         progress?(.phaseStarted(.manifest))
+        try Task.checkCancellation()
         let manifest = makeManifest(
             dictionaryID: dictionaryID,
             sqliteResult: sqliteResult,
@@ -114,10 +122,12 @@ public struct YomitanDictionaryInstaller: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try encoder.encode(manifest).write(to: manifestURL, options: .atomic)
+        try Task.checkCancellation()
         progress?(.phaseFinished(.manifest, elapsedSeconds: manifestTimer.elapsedSeconds))
 
         let validationTimer = DictionaryImportTimer()
         progress?(.phaseStarted(.bundleValidation))
+        try Task.checkCancellation()
         try DictionaryBundleValidator.validate(
             databaseURL: stagingDatabase,
             resourcesRoot: stagingResources,
@@ -130,6 +140,7 @@ public struct YomitanDictionaryInstaller: Sendable {
         guard decodedManifest == manifest else {
             throw DictionaryInstallationError.manifestValidationFailed
         }
+        try Task.checkCancellation()
         progress?(.phaseFinished(
             .bundleValidation,
             elapsedSeconds: validationTimer.elapsedSeconds
@@ -137,6 +148,7 @@ public struct YomitanDictionaryInstaller: Sendable {
 
         let publicationTimer = DictionaryImportTimer()
         progress?(.phaseStarted(.publication))
+        try Task.checkCancellation()
         try fileManager.moveItem(at: stagingBundle, to: finalBundle)
         shouldRemoveStaging = false
         progress?(.phaseFinished(

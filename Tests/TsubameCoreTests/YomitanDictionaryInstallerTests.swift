@@ -195,6 +195,63 @@ struct YomitanDictionaryInstallerTests {
         }
     }
 
+    @Test func cancellationBeforePublicationRemovesAllImportArtifacts() async throws {
+        let root = fileManager.temporaryDirectory.appending(
+            path: "TsubameCoreTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let layout = makeLayout(root: root)
+        let archive = root.appending(path: "cancelled.zip")
+        try makeZIP([
+            .file(
+                "index.json",
+                #"{"title":"Cancelled","format":3,"revision":"1"}"#
+            ),
+            .file("term_bank_1.json", #"[["鳥","とり","","",0,["bird"],1,""]]"#)
+        ]).write(to: archive)
+
+        let retainedID = UUID()
+        let retainedBundle = layout.dictionaryBundleURL(for: retainedID)
+        try fileManager.createDirectory(at: retainedBundle, withIntermediateDirectories: true)
+        let marker = retainedBundle.appending(path: "keep.txt")
+        try Data("keep".utf8).write(to: marker)
+
+        let task = Task {
+            try YomitanDictionaryInstaller(layout: layout).install(
+                from: DictionaryImportSource(url: archive),
+                dictionaryID: dictionaryID,
+                importID: importID,
+                progress: { event in
+                    guard case .phaseStarted(.publication) = event else { return }
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+            )
+        }
+
+        do {
+            _ = try await task.value
+            Issue.record("Expected import cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(!fileManager.fileExists(
+            atPath: layout.dictionaryBundleURL(for: dictionaryID).path
+        ))
+        #expect(!fileManager.fileExists(
+            atPath: layout.publicationStagingURL(for: importID).path
+        ))
+        #expect(!fileManager.fileExists(
+            atPath: layout.temporaryWorkingURL(for: importID).path
+        ))
+        #expect(try String(contentsOf: marker, encoding: .utf8) == "keep")
+    }
+
     @Test func refusesToReplaceExistingBundle() throws {
         try withTemporaryDirectory { root in
             let layout = makeLayout(root: root)

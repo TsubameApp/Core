@@ -6,6 +6,7 @@ enum DictionaryBundleValidator {
         resourcesRoot: URL,
         expectedResources: [DictionaryResourceRecord]
     ) throws {
+        try Task.checkCancellation()
         let connection = try SQLiteConnection(url: databaseURL, mode: .readOnly)
         defer { try? connection.close() }
 
@@ -20,6 +21,7 @@ enum DictionaryBundleValidator {
 
         var storedResources: [DictionaryResourceRecord] = []
         while try statement.step() == .row {
+            try Task.checkCancellation()
             guard let logicalPathValue = statement.string(at: 0),
                   let storedRelativePath = statement.string(at: 1),
                   let mediaType = statement.string(at: 2) else {
@@ -46,6 +48,7 @@ enum DictionaryBundleValidator {
             throw DictionaryInstallationError.resourceValidationFailed("SQLite resource inventory")
         }
         for resource in expectedResources {
+            try Task.checkCancellation()
             let fileURL = resource.logicalPath.components.reduce(resourcesRoot) {
                 $0.appending(path: $1)
             }

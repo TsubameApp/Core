@@ -86,6 +86,7 @@ public struct YomitanArchiveExtractor: Sendable {
 
     @discardableResult
     public func extract(_ source: DictionaryImportSource, to destination: URL) throws -> URL {
+        try Task.checkCancellation()
         guard source.url.isFileURL else {
             throw DictionaryArchiveExtractionError.sourceIsNotLocalFile(source.url)
         }
@@ -114,6 +115,7 @@ public struct YomitanArchiveExtractor: Sendable {
         defer { tsubame_zip_close(archive) }
 
         let entries = try validatedEntries(in: archive)
+        try Task.checkCancellation()
 
         do {
             try fileManager.createDirectory(
@@ -126,6 +128,9 @@ public struct YomitanArchiveExtractor: Sendable {
                 try? fileManager.removeItem(at: destination)
                 throw error
             }
+        } catch is CancellationError {
+            try? fileManager.removeItem(at: destination)
+            throw CancellationError()
         } catch let error as DictionaryArchiveExtractionError {
             throw error
         } catch {
@@ -169,6 +174,7 @@ private extension YomitanArchiveExtractor {
         var totalSize: UInt64 = 0
 
         for offset in 0..<count {
+            try Task.checkCancellation()
             let index = UInt32(offset)
             let originalPath = try entryName(in: archive, at: index)
             var info = tsubame_zip_entry_info()
@@ -313,6 +319,7 @@ private extension YomitanArchiveExtractor {
         fileManager: FileManager
     ) throws {
         for entry in entries {
+            try Task.checkCancellation()
             let output = entry.components.reduce(destination) {
                 $0.appendingPathComponent($1, isDirectory: false)
             }
@@ -357,6 +364,7 @@ private extension YomitanArchiveExtractor {
 
         do {
             while written < entry.uncompressedSize {
+                try Task.checkCancellation()
                 let remaining = entry.uncompressedSize - written
                 let requestedCount = min(buffer.count, Int(remaining))
                 let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
