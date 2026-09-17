@@ -26,6 +26,7 @@ public struct InstalledDictionaryResult: Sendable, Equatable {
 public struct YomitanDictionaryInstaller: Sendable {
     public let layout: DictionaryLibraryLayout
     public let resourceLimits: DictionaryResourceImportLimits
+    private let replaceBundle: @Sendable (URL, URL, String) throws -> Void
 
     public init(
         layout: DictionaryLibraryLayout,
@@ -33,6 +34,24 @@ public struct YomitanDictionaryInstaller: Sendable {
     ) {
         self.layout = layout
         self.resourceLimits = resourceLimits
+        replaceBundle = { originalURL, replacementURL, backupName in
+            _ = try FileManager.default.replaceItemAt(
+                originalURL,
+                withItemAt: replacementURL,
+                backupItemName: backupName,
+                options: [.withoutDeletingBackupItem]
+            )
+        }
+    }
+
+    init(
+        layout: DictionaryLibraryLayout,
+        resourceLimits: DictionaryResourceImportLimits = .default,
+        replaceBundle: @escaping @Sendable (URL, URL, String) throws -> Void
+    ) {
+        self.layout = layout
+        self.resourceLimits = resourceLimits
+        self.replaceBundle = replaceBundle
     }
 
     public func install(
@@ -45,12 +64,154 @@ public struct YomitanDictionaryInstaller: Sendable {
         let totalTimer = DictionaryImportTimer()
         let fileManager = FileManager.default
         let finalBundle = layout.dictionaryBundleURL(for: dictionaryID)
-        let stagingBundle = layout.publicationStagingURL(for: importID)
-        let workingDirectory = layout.temporaryWorkingURL(for: importID)
 
         guard !fileManager.fileExists(atPath: finalBundle.path) else {
             throw DictionaryInstallationError.finalBundleAlreadyExists(finalBundle)
         }
+        let staged = try buildStagedBundle(
+            from: source,
+            dictionaryID: dictionaryID,
+            importID: importID,
+            progress: progress
+        )
+        defer { try? fileManager.removeItem(at: staged.bundleURL) }
+
+        let publicationTimer = DictionaryImportTimer()
+        progress?(.phaseStarted(.publication))
+        try Task.checkCancellation()
+        try fileManager.moveItem(at: staged.bundleURL, to: finalBundle)
+        progress?(.phaseFinished(
+            .publication,
+            elapsedSeconds: publicationTimer.elapsedSeconds
+        ))
+        progress?(.completed(elapsedSeconds: totalTimer.elapsedSeconds))
+
+        return InstalledDictionaryResult(
+            dictionaryID: dictionaryID,
+            bundleURL: finalBundle,
+            databaseURL: layout.dictionaryDatabaseURL(for: dictionaryID),
+            resourcesURL: layout.resourcesRootURL(for: dictionaryID),
+            manifest: staged.manifest
+        )
+    }
+
+    public func replace(
+        dictionaryID: UUID,
+        from source: DictionaryImportSource,
+        importID: UUID = UUID(),
+        progress: DictionaryImportProgressHandler? = nil
+    ) throws -> InstalledDictionaryResult {
+        try Task.checkCancellation()
+        let totalTimer = DictionaryImportTimer()
+        let fileManager = FileManager.default
+        let finalBundle = layout.dictionaryBundleURL(for: dictionaryID)
+        let existingManifestURL = layout.dictionaryManifestURL(for: dictionaryID)
+
+        guard fileManager.fileExists(atPath: finalBundle.path) else {
+            throw DictionaryInstallationError.finalBundleNotFound(finalBundle)
+        }
+        let existingManifest: DictionaryBundleManifest
+        do {
+            existingManifest = try JSONDecoder().decode(
+                DictionaryBundleManifest.self,
+                from: Data(contentsOf: existingManifestURL)
+            )
+        } catch {
+            throw DictionaryInstallationError.invalidExistingManifest(existingManifestURL)
+        }
+        guard existingManifest.dictionaryID == dictionaryID,
+              existingManifest.manifestVersion == DictionaryBundleManifest.currentVersion else {
+            throw DictionaryInstallationError.invalidExistingManifest(existingManifestURL)
+        }
+
+        let staged = try buildStagedBundle(
+            from: source,
+            dictionaryID: dictionaryID,
+            importID: importID,
+            progress: progress
+        )
+        defer { try? fileManager.removeItem(at: staged.bundleURL) }
+
+        guard staged.manifest.title == existingManifest.title else {
+            throw DictionaryInstallationError.replacementTitleMismatch(
+                expected: existingManifest.title,
+                actual: staged.manifest.title
+            )
+        }
+
+        let backupName = ".replacement-backup-\(importID.uuidString.lowercased())"
+        let backupURL = layout.dictionariesRootURL.appending(
+            path: backupName,
+            directoryHint: .isDirectory
+        )
+        guard !fileManager.fileExists(atPath: backupURL.path) else {
+            throw DictionaryInstallationError.replacementBackupAlreadyExists(backupURL)
+        }
+
+        let publicationTimer = DictionaryImportTimer()
+        progress?(.phaseStarted(.publication))
+        try Task.checkCancellation()
+        do {
+            try replaceBundle(finalBundle, staged.bundleURL, backupName)
+        } catch {
+            try rollbackReplacementIfNeeded(
+                finalBundle: finalBundle,
+                backupBundle: backupURL,
+                fileManager: fileManager
+            )
+            throw error
+        }
+
+        do {
+            let publishedManifest = try JSONDecoder().decode(
+                DictionaryBundleManifest.self,
+                from: Data(contentsOf: existingManifestURL)
+            )
+            guard publishedManifest == staged.manifest else {
+                throw DictionaryInstallationError.manifestValidationFailed
+            }
+        } catch {
+            try rollbackReplacementIfNeeded(
+                finalBundle: finalBundle,
+                backupBundle: backupURL,
+                fileManager: fileManager,
+                replacingPublishedBundle: true
+            )
+            throw error
+        }
+
+        try? fileManager.removeItem(at: backupURL)
+        progress?(.phaseFinished(
+            .publication,
+            elapsedSeconds: publicationTimer.elapsedSeconds
+        ))
+        progress?(.completed(elapsedSeconds: totalTimer.elapsedSeconds))
+
+        return InstalledDictionaryResult(
+            dictionaryID: dictionaryID,
+            bundleURL: finalBundle,
+            databaseURL: layout.dictionaryDatabaseURL(for: dictionaryID),
+            resourcesURL: layout.resourcesRootURL(for: dictionaryID),
+            manifest: staged.manifest
+        )
+    }
+}
+
+private extension YomitanDictionaryInstaller {
+    struct StagedDictionaryBundle {
+        let bundleURL: URL
+        let manifest: DictionaryBundleManifest
+    }
+
+    func buildStagedBundle(
+        from source: DictionaryImportSource,
+        dictionaryID: UUID,
+        importID: UUID,
+        progress: DictionaryImportProgressHandler?
+    ) throws -> StagedDictionaryBundle {
+        let fileManager = FileManager.default
+        let stagingBundle = layout.publicationStagingURL(for: importID)
+        let workingDirectory = layout.temporaryWorkingURL(for: importID)
         guard !fileManager.fileExists(atPath: stagingBundle.path) else {
             throw DictionaryInstallationError.stagingBundleAlreadyExists(stagingBundle)
         }
@@ -61,9 +222,9 @@ public struct YomitanDictionaryInstaller: Sendable {
         )
         try fileManager.createDirectory(at: stagingBundle, withIntermediateDirectories: false)
 
-        var shouldRemoveStaging = true
+        var completed = false
         defer {
-            if shouldRemoveStaging {
+            if !completed {
                 try? fileManager.removeItem(at: stagingBundle)
             }
             try? fileManager.removeItem(at: workingDirectory)
@@ -82,6 +243,7 @@ public struct YomitanDictionaryInstaller: Sendable {
             .sourcePreparation,
             elapsedSeconds: sourceTimer.elapsedSeconds
         ))
+
         let stagingResources = stagingBundle.appending(
             path: "resources",
             directoryHint: .isDirectory
@@ -146,28 +308,27 @@ public struct YomitanDictionaryInstaller: Sendable {
             elapsedSeconds: validationTimer.elapsedSeconds
         ))
 
-        let publicationTimer = DictionaryImportTimer()
-        progress?(.phaseStarted(.publication))
-        try Task.checkCancellation()
-        try fileManager.moveItem(at: stagingBundle, to: finalBundle)
-        shouldRemoveStaging = false
-        progress?(.phaseFinished(
-            .publication,
-            elapsedSeconds: publicationTimer.elapsedSeconds
-        ))
-        progress?(.completed(elapsedSeconds: totalTimer.elapsedSeconds))
-
-        return InstalledDictionaryResult(
-            dictionaryID: dictionaryID,
-            bundleURL: finalBundle,
-            databaseURL: layout.dictionaryDatabaseURL(for: dictionaryID),
-            resourcesURL: layout.resourcesRootURL(for: dictionaryID),
-            manifest: manifest
-        )
+        completed = true
+        return StagedDictionaryBundle(bundleURL: stagingBundle, manifest: manifest)
     }
-}
 
-private extension YomitanDictionaryInstaller {
+    func rollbackReplacementIfNeeded(
+        finalBundle: URL,
+        backupBundle: URL,
+        fileManager: FileManager,
+        replacingPublishedBundle: Bool = false
+    ) throws {
+        guard fileManager.fileExists(atPath: backupBundle.path) else { return }
+        do {
+            if replacingPublishedBundle || fileManager.fileExists(atPath: finalBundle.path) {
+                try fileManager.removeItem(at: finalBundle)
+            }
+            try fileManager.moveItem(at: backupBundle, to: finalBundle)
+        } catch {
+            throw DictionaryInstallationError.replacementRecoveryFailed(finalBundle)
+        }
+    }
+
     func prepareSource(
         _ source: DictionaryImportSource,
         workingDirectory: URL,

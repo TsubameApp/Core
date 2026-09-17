@@ -252,6 +252,229 @@ struct YomitanDictionaryInstallerTests {
         #expect(try String(contentsOf: marker, encoding: .utf8) == "keep")
     }
 
+    @Test func replacesValidatedBundleWhileKeepingDictionaryIdentity() throws {
+        try withTemporaryDirectory { root in
+            let layout = makeLayout(root: root)
+            let installer = YomitanDictionaryInstaller(layout: layout)
+            let original = try makeDictionaryArchive(
+                root: root,
+                name: "original.zip",
+                title: "Replace Test",
+                revision: "1",
+                term: "鳥"
+            )
+            let replacement = try makeDictionaryArchive(
+                root: root,
+                name: "replacement.zip",
+                title: "Replace Test",
+                revision: "2",
+                term: "猫"
+            )
+            _ = try installer.install(
+                from: DictionaryImportSource(url: original),
+                dictionaryID: dictionaryID,
+                importID: importID
+            )
+            let replacementImportID = UUID()
+
+            let result = try installer.replace(
+                dictionaryID: dictionaryID,
+                from: DictionaryImportSource(url: replacement),
+                importID: replacementImportID
+            )
+
+            #expect(result.dictionaryID == dictionaryID)
+            #expect(result.manifest.revision == "2")
+            let manifest = try JSONDecoder().decode(
+                DictionaryBundleManifest.self,
+                from: Data(contentsOf: layout.dictionaryManifestURL(for: dictionaryID))
+            )
+            #expect(manifest.dictionaryID == dictionaryID)
+            #expect(manifest.revision == "2")
+            let connection = try SQLiteConnection(
+                url: layout.dictionaryDatabaseURL(for: dictionaryID),
+                mode: .readOnly
+            )
+            defer { try? connection.close() }
+            let statement = try connection.prepare("SELECT expression FROM term_entry")
+            defer { statement.finalizeIgnoringErrors() }
+            #expect(try statement.step() == .row)
+            #expect(statement.string(at: 0) == "猫")
+            #expect(!fileManager.fileExists(
+                atPath: layout.publicationStagingURL(for: replacementImportID).path
+            ))
+            #expect(!fileManager.fileExists(
+                atPath: layout.dictionariesRootURL.appending(
+                    path: ".replacement-backup-\(replacementImportID.uuidString.lowercased())"
+                ).path
+            ))
+        }
+    }
+
+    @Test func rejectsReplacementWithDifferentTitleAndKeepsOriginal() throws {
+        try withTemporaryDirectory { root in
+            let layout = makeLayout(root: root)
+            let installer = YomitanDictionaryInstaller(layout: layout)
+            let original = try makeDictionaryArchive(
+                root: root,
+                name: "original.zip",
+                title: "Original Title",
+                revision: "1",
+                term: "鳥"
+            )
+            let replacement = try makeDictionaryArchive(
+                root: root,
+                name: "wrong.zip",
+                title: "Different Title",
+                revision: "2",
+                term: "猫"
+            )
+            _ = try installer.install(
+                from: DictionaryImportSource(url: original),
+                dictionaryID: dictionaryID,
+                importID: importID
+            )
+            let replacementImportID = UUID()
+
+            #expect(throws: DictionaryInstallationError.self) {
+                try installer.replace(
+                    dictionaryID: dictionaryID,
+                    from: DictionaryImportSource(url: replacement),
+                    importID: replacementImportID
+                )
+            }
+
+            let manifest = try JSONDecoder().decode(
+                DictionaryBundleManifest.self,
+                from: Data(contentsOf: layout.dictionaryManifestURL(for: dictionaryID))
+            )
+            #expect(manifest.title == "Original Title")
+            #expect(manifest.revision == "1")
+            #expect(!fileManager.fileExists(
+                atPath: layout.publicationStagingURL(for: replacementImportID).path
+            ))
+        }
+    }
+
+    @Test func cancellationBeforeReplacementPublicationKeepsOriginal() async throws {
+        let root = fileManager.temporaryDirectory.appending(
+            path: "TsubameInstallerTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let layout = makeLayout(root: root)
+        let installer = YomitanDictionaryInstaller(layout: layout)
+        let original = try makeDictionaryArchive(
+            root: root,
+            name: "original.zip",
+            title: "Cancel Replace",
+            revision: "1",
+            term: "鳥"
+        )
+        let replacement = try makeDictionaryArchive(
+            root: root,
+            name: "replacement.zip",
+            title: "Cancel Replace",
+            revision: "2",
+            term: "猫"
+        )
+        _ = try installer.install(
+            from: DictionaryImportSource(url: original),
+            dictionaryID: dictionaryID,
+            importID: importID
+        )
+        let replacementImportID = UUID()
+
+        let task = Task {
+            try installer.replace(
+                dictionaryID: dictionaryID,
+                from: DictionaryImportSource(url: replacement),
+                importID: replacementImportID,
+                progress: { event in
+                    guard case .phaseStarted(.publication) = event else { return }
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+            )
+        }
+        do {
+            _ = try await task.value
+            Issue.record("Expected replacement cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        let manifest = try JSONDecoder().decode(
+            DictionaryBundleManifest.self,
+            from: Data(contentsOf: layout.dictionaryManifestURL(for: dictionaryID))
+        )
+        #expect(manifest.revision == "1")
+        #expect(!fileManager.fileExists(
+            atPath: layout.publicationStagingURL(for: replacementImportID).path
+        ))
+    }
+
+    @Test func publicationFailureRollsBackOriginalBundle() throws {
+        try withTemporaryDirectory { root in
+            let layout = makeLayout(root: root)
+            let original = try makeDictionaryArchive(
+                root: root,
+                name: "original.zip",
+                title: "Rollback Test",
+                revision: "1",
+                term: "鳥"
+            )
+            let replacement = try makeDictionaryArchive(
+                root: root,
+                name: "replacement.zip",
+                title: "Rollback Test",
+                revision: "2",
+                term: "猫"
+            )
+            _ = try YomitanDictionaryInstaller(layout: layout).install(
+                from: DictionaryImportSource(url: original),
+                dictionaryID: dictionaryID,
+                importID: importID
+            )
+            let replacementImportID = UUID()
+            let failingInstaller = YomitanDictionaryInstaller(
+                layout: layout,
+                replaceBundle: { originalURL, _, backupName in
+                    let backupURL = originalURL.deletingLastPathComponent().appending(
+                        path: backupName,
+                        directoryHint: .isDirectory
+                    )
+                    try FileManager.default.moveItem(at: originalURL, to: backupURL)
+                    throw TestPublicationError.failed
+                }
+            )
+
+            #expect(throws: TestPublicationError.self) {
+                try failingInstaller.replace(
+                    dictionaryID: dictionaryID,
+                    from: DictionaryImportSource(url: replacement),
+                    importID: replacementImportID
+                )
+            }
+
+            let manifest = try JSONDecoder().decode(
+                DictionaryBundleManifest.self,
+                from: Data(contentsOf: layout.dictionaryManifestURL(for: dictionaryID))
+            )
+            #expect(manifest.revision == "1")
+            #expect(!fileManager.fileExists(
+                atPath: layout.publicationStagingURL(for: replacementImportID).path
+            ))
+            #expect(!fileManager.fileExists(
+                atPath: layout.dictionariesRootURL.appending(
+                    path: ".replacement-backup-\(replacementImportID.uuidString.lowercased())"
+                ).path
+            ))
+        }
+    }
+
     @Test func refusesToReplaceExistingBundle() throws {
         try withTemporaryDirectory { root in
             let layout = makeLayout(root: root)
@@ -279,6 +502,27 @@ struct YomitanDictionaryInstallerTests {
                 temporaryRoot: root.appending(path: "temporary", directoryHint: .isDirectory)
             )
         )
+    }
+
+    private func makeDictionaryArchive(
+        root: URL,
+        name: String,
+        title: String,
+        revision: String,
+        term: String
+    ) throws -> URL {
+        let archive = root.appending(path: name)
+        try makeZIP([
+            .file(
+                "index.json",
+                "{\"title\":\"\(title)\",\"format\":3,\"revision\":\"\(revision)\"}"
+            ),
+            .file(
+                "term_bank_1.json",
+                "[[\"\(term)\",\"\",\"\",\"\",0,[\"definition\"],1,\"\"]]"
+            )
+        ]).write(to: archive)
+        return archive
     }
 
     private func regularFilePaths(under root: URL, relativeTo base: URL) throws -> Set<String> {
@@ -316,6 +560,10 @@ struct YomitanDictionaryInstallerTests {
         defer { try? fileManager.removeItem(at: directory) }
         try body(directory)
     }
+}
+
+private enum TestPublicationError: Error {
+    case failed
 }
 
 private final class ImportProgressRecorder: @unchecked Sendable {

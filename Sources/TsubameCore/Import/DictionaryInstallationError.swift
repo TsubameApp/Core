@@ -2,7 +2,12 @@ import Foundation
 
 public enum DictionaryInstallationError: LocalizedError, Sendable, Equatable {
     case finalBundleAlreadyExists(URL)
+    case finalBundleNotFound(URL)
     case stagingBundleAlreadyExists(URL)
+    case replacementBackupAlreadyExists(URL)
+    case invalidExistingManifest(URL)
+    case replacementTitleMismatch(expected: String, actual: String)
+    case replacementRecoveryFailed(URL)
     case invalidResourcePath(String)
     case unsupportedResource(String)
     case symbolicLinkResource(String)
@@ -16,8 +21,18 @@ public enum DictionaryInstallationError: LocalizedError, Sendable, Equatable {
         switch self {
         case .finalBundleAlreadyExists(let url):
             return "Dictionary bundle already exists: \(url.path)"
+        case .finalBundleNotFound(let url):
+            return "Dictionary bundle does not exist: \(url.path)"
         case .stagingBundleAlreadyExists(let url):
             return "Dictionary staging bundle already exists: \(url.path)"
+        case .replacementBackupAlreadyExists(let url):
+            return "Dictionary replacement backup already exists: \(url.path)"
+        case .invalidExistingManifest(let url):
+            return "Installed dictionary manifest is invalid: \(url.path)"
+        case .replacementTitleMismatch(let expected, let actual):
+            return "Replacement dictionary title \"\(actual)\" does not match \"\(expected)\"."
+        case .replacementRecoveryFailed(let url):
+            return "Could not restore the original dictionary bundle at \(url.path)."
         case .invalidResourcePath(let path):
             return "Dictionary contains an invalid resource path: \(path)"
         case .unsupportedResource(let path):
