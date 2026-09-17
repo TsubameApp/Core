@@ -35,12 +35,17 @@ public struct YomitanDictionaryInstaller: Sendable {
         self.layout = layout
         self.resourceLimits = resourceLimits
         replaceBundle = { originalURL, replacementURL, backupName in
-            _ = try FileManager.default.replaceItemAt(
-                originalURL,
-                withItemAt: replacementURL,
-                backupItemName: backupName,
-                options: [.withoutDeletingBackupItem]
+            let fileManager = FileManager.default
+            let backupURL = originalURL.deletingLastPathComponent().appending(
+                path: backupName,
+                directoryHint: .isDirectory
             )
+            // Foundation's replaceItemAt cannot replace a non-empty directory
+            // on Linux. Both moves stay inside the dictionary library, so each
+            // publication step is a same-filesystem atomic rename. The caller's
+            // rollback restores the backup if publishing the staged bundle fails.
+            try fileManager.moveItem(at: originalURL, to: backupURL)
+            try fileManager.moveItem(at: replacementURL, to: originalURL)
         }
     }
 
